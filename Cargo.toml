@@ -1,0 +1,20 @@
+[source.crates-io]
+replace-with = 'tuna'
+
+[source.tuna]
+registry = "sparse+https://mirrors.tuna.tsinghua.edu.cn/crates.io-index/"
+
+[package]
+name = "docker-registry-proxy-rs"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+reqwest = { version = "0.12.12", features = ["json"] }
+serde = { version = "1.0", features = ["derive"] }
+env_logger = "0.10"
+futures = "0.3"
+actix-web = { version = "4", features = ["rustls"] }
+rustls = "0.20"
+rustls-pemfile = "1.0"
