@@ -5,7 +5,10 @@ use rustls_pemfile;
 use std::fs::File;
 use std::io::BufReader;
 
-async fn redirect(
+// 将 Docker Registry URL 定义为常量
+const DOCKER_REGISTRY_URL: &str = "https://registry-1.docker.io";
+
+async fn handle_no_namespace_request(
     req: HttpRequest,
     path: web::Path<(String, String, String)>,
 ) -> Result<HttpResponse> {
@@ -47,8 +50,7 @@ async fn handle_request(
     // 获取路径参数
     let (image_name, path_type, reference) = path.into_inner();
 
-    // 构建目标URL
-    let docker_registry = "https://registry-1.docker.io";
+    // 使用常量构建目标URL
     let path = format!("/v2/library/{}/{}/{}", image_name, path_type, reference);
 
     // 创建 HTTP 客户端
@@ -56,9 +58,9 @@ async fn handle_request(
 
     // 构建请求，根据原始请求的方法选择 HEAD 或 GET
     let mut request_builder = if req.method() == &actix_web::http::Method::HEAD {
-        client.head(format!("{}{}", docker_registry, path))
+        client.head(format!("{}{}", DOCKER_REGISTRY_URL, path))
     } else {
-        client.get(format!("{}{}", docker_registry, path))
+        client.get(format!("{}{}", DOCKER_REGISTRY_URL, path))
     };
 
     // 添加认证头
@@ -176,15 +178,13 @@ fn process_scope(scope: &str) -> String {
 }
 
 async fn proxy_challenge(req: HttpRequest) -> Result<HttpResponse> {
-    let upstream = "https://registry-1.docker.io";
-
     let host = match req.connection_info().host() {
         host if host.contains(':') => host.to_string(),
         host => format!("{}", host)
     };
 
     let client = reqwest::Client::new();
-    let response = match client.get(format!("{}/v2/", upstream)).send().await {
+    let response = match client.get(format!("{}/v2/", DOCKER_REGISTRY_URL)).send().await {
         Ok(resp) => resp,
         Err(_) => {
             return Ok(HttpResponse::InternalServerError()
@@ -199,7 +199,7 @@ async fn proxy_challenge(req: HttpRequest) -> Result<HttpResponse> {
 
     builder.append_header((
         "WWW-Authenticate",
-        format!("Bearer realm=\"http://{}/auth/token\",service=\"docker-registry-proxy\"", host)
+        format!("Bearer realm=\"https://{}/auth/token\",service=\"docker-registry-proxy\"", host)
     ));
 
 
@@ -252,7 +252,7 @@ async fn main() -> std::io::Result<()> {
             .route("/v2/{image_name}/{path_type}/{reference:.+}",
                    web::route()
                    .guard(guard::Any(guard::Get()).or(guard::Head()))
-                   .to(redirect))
+                   .to(handle_no_namespace_request))
     };
     
     // 创建HTTP重定向应用配置
