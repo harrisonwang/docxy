@@ -11,7 +11,7 @@ edition = "2024"
 
 [dependencies]
 tokio = { version = "1", features = ["full"] }
-reqwest = { version = "0.12.12", features = ["json"] }
+reqwest = { version = "0.12.12", features = ["json", "stream"] }
 serde = { version = "1.0", features = ["derive"] }
 env_logger = "0.10"
 futures = "0.3"

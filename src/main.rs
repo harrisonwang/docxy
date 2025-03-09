@@ -4,6 +4,7 @@ use rustls::{Certificate, PrivateKey, ServerConfig};
 use rustls_pemfile;
 use std::fs::File;
 use std::io::BufReader;
+use futures::stream::StreamExt;
 
 // 将 Docker Registry URL 定义为常量
 const DOCKER_REGISTRY_URL: &str = "https://registry-1.docker.io";
@@ -103,14 +104,17 @@ async fn handle_request(
         // HEAD 请求，不需要返回响应体
         Ok(builder.finish())
     } else {
-        // GET 请求，返回完整响应体
-        match response.bytes().await {
-            Ok(bytes) => Ok(builder.body(bytes)),
-            Err(e) => {
-                eprintln!("读取响应体失败: {}", e);
-                Ok(HttpResponse::InternalServerError().body(format!("无法读取响应内容: {}", e)))
-            }
-        }
+        // GET 请求，使用流式传输响应体
+        let stream = response
+            .bytes_stream()
+            .map(|result| {
+                result.map_err(|err| {
+                    eprintln!("流读取错误: {}", err);
+                    actix_web::error::ErrorInternalServerError(err)
+                })
+            });
+            
+        Ok(builder.streaming(stream))
     }
 }
 
