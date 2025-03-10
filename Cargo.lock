@@ -482,7 +482,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "docker-registry-proxy-rs"
+name = "docxy"
 version = "0.1.0"
 dependencies = [
  "actix-web",

@@ -5,7 +5,7 @@ replace-with = 'tuna'
 registry = "sparse+https://mirrors.tuna.tsinghua.edu.cn/crates.io-index/"
 
 [package]
-name = "docker-registry-proxy-rs"
+name = "docxy"
 version = "0.1.0"
 edition = "2024"
 
