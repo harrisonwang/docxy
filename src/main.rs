@@ -224,7 +224,7 @@ async fn proxy_challenge(req: HttpRequest) -> Result<HttpResponse> {
 async fn health_check() -> impl Responder {
     HttpResponse::Ok()
         .content_type("text/plain; charset=utf-8")
-        .body("服务正常运行\n")
+        .body("服务正常运行 - Health check passed\n")
 }
 
 // 新增HTTP到HTTPS的重定向处理函数
