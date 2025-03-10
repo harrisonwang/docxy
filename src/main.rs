@@ -6,7 +6,7 @@ use std::fs::File;
 use std::io::BufReader;
 use futures::stream::StreamExt;
 use std::time::Duration;
-use lazy_static;
+use lazy_static::lazy_static;
 
 // 将 Docker Registry URL 定义为常量
 const DOCKER_REGISTRY_URL: &str = "https://registry-1.docker.io";
