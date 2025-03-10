@@ -247,10 +247,12 @@ async fn main() -> std::io::Result<()> {
         .default_filter_or("actix_web=info"))
         .init();
     
-    println!("服务器启动在 HTTP 端口 80 和 HTTPS 端口 443");
+    // 获取端口号，默认为8080
+    let port = std::env::var("PORT").unwrap_or_else(|_| "8080".to_string()).parse::<u16>().unwrap_or(8080);
+    println!("服务器启动在 HTTP 端口 {}", port);
     
-    // 创建HTTPS应用配置
-    let https_app = || {
+    // 创建HTTP应用配置
+    let app = || {
         App::new()
             .route("/v2/", web::get().to(proxy_challenge))
             .route("/auth/token", web::get().to(get_token))
@@ -265,26 +267,11 @@ async fn main() -> std::io::Result<()> {
                    .to(handle_no_namespace_request))
     };
     
-    // 创建HTTP重定向应用配置
-    let http_app = || {
-        App::new()
-            .default_service(web::route().to(redirect_to_https))
-    };
-    
-    // 加载TLS配置
-    let rustls_config = load_rustls_config().expect("无法加载TLS配置");
-    
-    // 同时启动HTTP和HTTPS服务器
-    let http_server = HttpServer::new(http_app)
-        .bind(("0.0.0.0", 80))?
-        .run();
-        
-    let https_server = HttpServer::new(https_app)
-        .bind_rustls(("0.0.0.0", 443), rustls_config)?
-        .run();
-    
-    // 等待两个服务器都完成
-    futures::future::try_join(http_server, https_server).await?;
+    // 启动HTTP服务器
+    HttpServer::new(app)
+        .bind(("0.0.0.0", port))?
+        .run()
+        .await?;
     
     Ok(())
 }
