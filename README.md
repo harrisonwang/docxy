@@ -113,6 +113,47 @@ https://your-proxy-domain.com/health
    sudo systemctl restart docker
    ```
 
+## 部署到云平台
+
+要获得一个公共可访问的 URL，您可以将服务部署到云平台。
+
+### 部署到 Render.com
+
+1. 创建 render.yaml 配置文件:
+   ```yaml
+   services:
+     - type: web
+       name: docxy-registry
+       env: docker
+       dockerfilePath: ./Dockerfile
+       plan: free
+       healthCheckPath: /health
+       envVars:
+         - key: PORT
+           value: 8080
+   ```
+
+2. 在 Render.com 上创建账户并部署:
+   - 创建账户: https://render.com/signup
+   - 创建新服务: https://dashboard.render.com/new/web-service
+   - 选择 "Build and deploy from a Git repository"
+   - 连接 GitHub 仓库
+   - 选择 "Docker" 作为环境
+   - 部署服务
+
+3. 获取部署 URL:
+   - 部署完成后，Render.com 会提供一个公共 URL
+   - 例如: https://docxy-registry.onrender.com
+
+4. 在 Docker 配置中使用此 URL:
+   ```json
+   {
+     "registry-mirrors": ["https://docxy-registry.onrender.com"]
+   }
+   ```
+
+更多部署选项和详细说明，请参阅 [DEPLOYMENT.md](./DEPLOYMENT.md) 文件。
+
 ## API 端点
 
 | 端点 | 描述 |
