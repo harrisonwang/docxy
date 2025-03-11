@@ -148,17 +148,9 @@ async fn get_token(req: HttpRequest) -> Result<HttpResponse> {
         // 如果有其他参数也可以添加，例如 client_id 等
     }
 
-    // 获取请求中的认证信息
-    let auth_header = req.headers().get("Authorization").and_then(|h| h.to_str().ok());
-
-    // 构建请求到 Docker Hub 认证服务
-    let mut request_builder = HTTP_CLIENT.get(auth_url);
+       // 构建请求到 Docker Hub 认证服务
+    let request_builder = HTTP_CLIENT.get(auth_url);
     
-    // 如果有认证信息，添加到请求中
-    if let Some(auth) = auth_header {
-        request_builder = request_builder.header("Authorization", auth);
-    }
-
     // 发送请求到 Docker Hub 认证服务
     let response = match request_builder.send().await {
         Ok(resp) => resp,
@@ -200,23 +192,15 @@ fn process_scope(scope: &str) -> String {
 }
 
 async fn proxy_challenge(req: HttpRequest) -> Result<HttpResponse> {
-    // 获取主机信息，不包含用户名和密码
+   // 获取主机信息，不包含用户名和密码
     let host = match req.connection_info().host() {
         host if host.contains(':') => host.split(':').next().unwrap_or("").to_string(),
         host => host.to_string()
     };
 
-    // 获取请求中的认证信息
-    let auth_header = req.headers().get("Authorization").and_then(|h| h.to_str().ok());
-
     // 构建请求到上游 Docker Registry
-    let mut request_builder = HTTP_CLIENT.get(format!("{}/v2/", DOCKER_REGISTRY_URL));
+    let request_builder = HTTP_CLIENT.get(format!("{}/v2/", DOCKER_REGISTRY_URL));
     
-    // 如果有认证信息，添加到请求中
-    if let Some(auth) = auth_header {
-        request_builder = request_builder.header("Authorization", auth);
-    }
-
     // 发送请求到上游 Docker Registry
     let response = match request_builder.send().await {
         Ok(resp) => resp,
@@ -229,11 +213,15 @@ async fn proxy_challenge(req: HttpRequest) -> Result<HttpResponse> {
     let status = response.status().as_u16();
     let mut builder = HttpResponse::build(actix_web::http::StatusCode::from_u16(status).unwrap());
 
-    // 设置认证头，不包含用户名和密码
-    builder.append_header((
-        "WWW-Authenticate",
-        format!("Bearer realm=\"https://{}/auth/token\",service=\"docker-registry-proxy\"", host)
-    ));
+    // 设置认证头，不包含用户名和密码，但不要求认证
+    if status == 401 {
+        // 返回 200 OK 而不是 401 Unauthorized
+        builder = HttpResponse::build(actix_web::http::StatusCode::OK);
+        builder.append_header((
+            "Content-Type", "application/json"
+        ));
+        return Ok(builder.body("{\"repositories\":[]}"));
+    }
 
     // 获取响应体
     let body = match response.text().await {

@@ -1,4 +1,4 @@
-app = "docxy"
+app = "docxy-public"
 primary_region = "sin"
 
 [build]
@@ -11,6 +11,12 @@ primary_region = "sin"
   auto_start_machines = true
   min_machines_running = 0
   processes = ["app"]
+  
+  # Allow public access without authentication
+  [http_service.concurrency]
+    type = "connections"
+    hard_limit = 1000
+    soft_limit = 500
 
 [[http_service.checks]]
   grace_period = "10s"

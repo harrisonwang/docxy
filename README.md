@@ -64,7 +64,10 @@ CERT_PATH=/path/to/your/cert.pem KEY_PATH=/path/to/your/key.pem ./target/release
 
 对于 Linux 系统，配置文件通常位于 `/etc/docker/daemon.json`。
 
-**注意**: Docker 不允许在 registry-mirrors URL 中包含用户名和密码。如果需要认证，请使用 HTTP 头部认证方式。
+**注意**: 
+- Docker 不允许在 registry-mirrors URL 中包含用户名和密码
+- 如果使用 expose_port 命令暴露服务，会添加 HTTP Basic 认证，这会导致 Docker 无法使用
+- 建议使用公共云平台部署，或者使用本地 IP 地址直接访问服务
 
 ### 健康检查
 
@@ -73,6 +76,42 @@ CERT_PATH=/path/to/your/cert.pem KEY_PATH=/path/to/your/key.pem ./target/release
 ```
 https://your-proxy-domain.com/health
 ```
+
+## 无认证版本
+
+为了与 Docker 的 registry-mirrors 配置兼容，我们提供了一个无需认证的版本。此版本修改了服务的行为，使其在收到认证请求时返回空结果而不是要求认证。
+
+### 使用方法
+
+1. 克隆仓库并切换到无认证分支：
+   ```bash
+   git clone https://github.com/harrisonwang/docxy.git
+   cd docxy
+   git checkout devin/1741594099-remove-auth-requirement-v2
+   ```
+
+2. 构建并运行服务：
+   ```bash
+   cargo build --release
+   PORT=8080 ./target/release/docxy
+   ```
+
+   或者使用提供的脚本：
+   ```bash
+   ./deploy-without-auth.sh
+   ```
+
+3. 在 Docker 配置中使用本地 IP 地址：
+   ```json
+   {
+     "registry-mirrors": ["http://your-server-ip:8080"]
+   }
+   ```
+
+4. 重启 Docker 服务：
+   ```bash
+   sudo systemctl restart docker
+   ```
 
 ## API 端点
 
