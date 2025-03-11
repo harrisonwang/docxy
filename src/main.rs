@@ -189,30 +189,42 @@ fn process_scope(scope: &str) -> String {
 }
 
 async fn proxy_challenge(req: HttpRequest) -> Result<HttpResponse> {
+    // 获取主机信息，不包含用户名和密码
     let host = match req.connection_info().host() {
-        host if host.contains(':') => host.to_string(),
-        host => format!("{}", host)
+        host if host.contains(':') => host.split(':').next().unwrap_or("").to_string(),
+        host => host.to_string()
     };
 
-    let response = match HTTP_CLIENT.get(format!("{}/v2/", DOCKER_REGISTRY_URL)).send().await {
+    // 获取请求中的认证信息
+    let auth_header = req.headers().get("Authorization").and_then(|h| h.to_str().ok());
+
+    // 构建请求到上游 Docker Registry
+    let mut request_builder = HTTP_CLIENT.get(format!("{}/v2/", DOCKER_REGISTRY_URL));
+    
+    // 如果有认证信息，添加到请求中
+    if let Some(auth) = auth_header {
+        request_builder = request_builder.header("Authorization", auth);
+    }
+
+    // 发送请求到上游 Docker Registry
+    let response = match request_builder.send().await {
         Ok(resp) => resp,
         Err(_) => {
             return Ok(HttpResponse::InternalServerError()
                       .body("无法连接到上游 Docker Registry"))
         }
-
     };
 
     let status = response.status().as_u16();
-
     let mut builder = HttpResponse::build(actix_web::http::StatusCode::from_u16(status).unwrap());
 
+    // 设置认证头，不包含用户名和密码
     builder.append_header((
         "WWW-Authenticate",
         format!("Bearer realm=\"https://{}/auth/token\",service=\"docker-registry-proxy\"", host)
     ));
 
-
+    // 获取响应体
     let body = match response.text().await {
         Ok(text) => text,
         Err(_) => String::from("无法读取上游响应内容")
@@ -265,6 +277,12 @@ async fn main() -> std::io::Result<()> {
                    web::route()
                    .guard(guard::Any(guard::Get()).or(guard::Head()))
                    .to(handle_no_namespace_request))
+            // 添加一个简单的根路径处理
+            .route("/", web::get().to(|| async {
+                HttpResponse::Ok()
+                    .content_type("text/plain; charset=utf-8")
+                    .body("Docker Registry 代理服务\n使用方法: 将此服务URL添加到Docker的registry-mirrors配置中\n")
+            }))
     };
     
     // 启动HTTP服务器
