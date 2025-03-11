@@ -26,9 +26,9 @@ async fn handle_no_namespace_request(
 ) -> Result<HttpResponse> {
     let (image_name, path_type, reference) = path.into_inner();
 
-    // 获取主机信息和协议
+    // 获取主机信息和协议，确保不包含用户名和密码
     let connection_info = req.connection_info();
-    let host = connection_info.host().to_string();
+    let host = connection_info.host().split('@').last().unwrap_or("").to_string();
     let scheme = connection_info.scheme();
 
     // 构建重定向URL (添加library命名空间)
@@ -148,8 +148,19 @@ async fn get_token(req: HttpRequest) -> Result<HttpResponse> {
         // 如果有其他参数也可以添加，例如 client_id 等
     }
 
+    // 获取请求中的认证信息
+    let auth_header = req.headers().get("Authorization").and_then(|h| h.to_str().ok());
+
+    // 构建请求到 Docker Hub 认证服务
+    let mut request_builder = HTTP_CLIENT.get(auth_url);
+    
+    // 如果有认证信息，添加到请求中
+    if let Some(auth) = auth_header {
+        request_builder = request_builder.header("Authorization", auth);
+    }
+
     // 发送请求到 Docker Hub 认证服务
-    let response = match HTTP_CLIENT.get(auth_url).send().await {
+    let response = match request_builder.send().await {
         Ok(resp) => resp,
         Err(_) => {
             return Ok(HttpResponse::InternalServerError()

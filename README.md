@@ -64,6 +64,8 @@ CERT_PATH=/path/to/your/cert.pem KEY_PATH=/path/to/your/key.pem ./target/release
 
 对于 Linux 系统，配置文件通常位于 `/etc/docker/daemon.json`。
 
+**注意**: Docker 不允许在 registry-mirrors URL 中包含用户名和密码。如果需要认证，请使用 HTTP 头部认证方式。
+
 ### 健康检查
 
 可以通过访问以下端点检查服务是否正常运行：
