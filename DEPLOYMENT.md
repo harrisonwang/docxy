@@ -39,23 +39,57 @@ This document provides instructions for deploying the Docker Registry Proxy serv
 
 ## Deployment to Fly.io
 
-1. Install the Fly.io CLI:
+Fly.io 是一个不需要认证即可访问的云平台，非常适合部署 Docker Registry 代理服务。
+
+### 使用部署脚本
+
+我们提供了一个简单的部署脚本，可以自动完成所有部署步骤：
+
+```bash
+./deploy-to-fly.sh
+```
+
+### 手动部署步骤
+
+1. 安装 Fly.io CLI:
    ```bash
    curl -L https://fly.io/install.sh | sh
+   export FLYCTL_INSTALL="$HOME/.fly"
+   export PATH="$FLYCTL_INSTALL/bin:$PATH"
    ```
 
-2. Login to Fly.io:
+2. 登录 Fly.io:
    ```bash
    fly auth login
    ```
+   这将打开浏览器窗口进行身份验证。
 
-3. Deploy the application:
+3. 创建应用程序:
    ```bash
-   fly launch --name docxy-public
+   fly launch --name docxy-public --no-deploy
+   ```
+   这将创建一个新的应用程序，但不会立即部署。
+
+4. 部署应用程序:
+   ```bash
    fly deploy
    ```
+   这将构建并部署应用程序到 Fly.io。
 
-4. The service will be available at `https://docxy-public.fly.dev`
+5. 获取部署 URL:
+   ```bash
+   fly open
+   ```
+   服务将在 `https://docxy-public.fly.dev` 可用。
+
+6. 在 Docker 配置中使用此 URL:
+   ```json
+   {
+     "registry-mirrors": ["https://docxy-public.fly.dev"]
+   }
+   ```
+
+**注意**: 与 expose_port 命令不同，Fly.io 不会为部署的服务添加认证，因此可以直接用作 Docker 的 registry-mirrors。
 
 ## Using the Deployed Service
 

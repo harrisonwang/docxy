@@ -152,6 +152,28 @@ https://your-proxy-domain.com/health
    }
    ```
 
+### 部署到 Fly.io
+
+Fly.io 是另一个不需要认证的云平台选项，详细部署步骤请参阅 [DEPLOYMENT.md](./DEPLOYMENT.md) 文件。
+
+## 关于认证问题
+
+### expose_port 命令的认证问题
+
+使用 expose_port 命令暴露服务时，会添加 nginx 认证层，这会导致 Docker 无法使用该服务作为 registry-mirrors。nginx 认证配置类似于：
+
+```nginx
+auth_basic "Restricted Area";
+auth_basic_user_file /path/to/.htpasswd;
+```
+
+这种认证无法通过 expose_port 命令的参数移除。要解决此问题，有两种方法：
+
+1. 使用本地 IP 地址直接访问服务（不经过 nginx）
+2. 部署到不添加认证的云平台，如 Fly.io
+
+详细的部署说明请参阅 [DEPLOYMENT.md](./DEPLOYMENT.md) 文件。
+
 更多部署选项和详细说明，请参阅 [DEPLOYMENT.md](./DEPLOYMENT.md) 文件。
 
 ## API 端点
