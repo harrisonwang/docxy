@@ -26,9 +26,9 @@ async fn handle_no_namespace_request(
 ) -> Result<HttpResponse> {
     let (image_name, path_type, reference) = path.into_inner();
 
-    // 获取主机信息和协议
+    // 获取主机信息和协议，确保不包含用户名和密码
     let connection_info = req.connection_info();
-    let host = connection_info.host().to_string();
+    let host = connection_info.host().split('@').last().unwrap_or("").to_string();
     let scheme = connection_info.scheme();
 
     // 构建重定向URL (添加library命名空间)
@@ -148,8 +148,19 @@ async fn get_token(req: HttpRequest) -> Result<HttpResponse> {
         // 如果有其他参数也可以添加，例如 client_id 等
     }
 
+    // 获取请求中的认证信息
+    let auth_header = req.headers().get("Authorization").and_then(|h| h.to_str().ok());
+
+    // 构建请求到 Docker Hub 认证服务
+    let mut request_builder = HTTP_CLIENT.get(auth_url);
+    
+    // 如果有认证信息，添加到请求中
+    if let Some(auth) = auth_header {
+        request_builder = request_builder.header("Authorization", auth);
+    }
+
     // 发送请求到 Docker Hub 认证服务
-    let response = match HTTP_CLIENT.get(auth_url).send().await {
+    let response = match request_builder.send().await {
         Ok(resp) => resp,
         Err(_) => {
             return Ok(HttpResponse::InternalServerError()
@@ -189,30 +200,42 @@ fn process_scope(scope: &str) -> String {
 }
 
 async fn proxy_challenge(req: HttpRequest) -> Result<HttpResponse> {
+    // 获取主机信息，不包含用户名和密码
     let host = match req.connection_info().host() {
-        host if host.contains(':') => host.to_string(),
-        host => format!("{}", host)
+        host if host.contains(':') => host.split(':').next().unwrap_or("").to_string(),
+        host => host.to_string()
     };
 
-    let response = match HTTP_CLIENT.get(format!("{}/v2/", DOCKER_REGISTRY_URL)).send().await {
+    // 获取请求中的认证信息
+    let auth_header = req.headers().get("Authorization").and_then(|h| h.to_str().ok());
+
+    // 构建请求到上游 Docker Registry
+    let mut request_builder = HTTP_CLIENT.get(format!("{}/v2/", DOCKER_REGISTRY_URL));
+    
+    // 如果有认证信息，添加到请求中
+    if let Some(auth) = auth_header {
+        request_builder = request_builder.header("Authorization", auth);
+    }
+
+    // 发送请求到上游 Docker Registry
+    let response = match request_builder.send().await {
         Ok(resp) => resp,
         Err(_) => {
             return Ok(HttpResponse::InternalServerError()
                       .body("无法连接到上游 Docker Registry"))
         }
-
     };
 
     let status = response.status().as_u16();
-
     let mut builder = HttpResponse::build(actix_web::http::StatusCode::from_u16(status).unwrap());
 
+    // 设置认证头，不包含用户名和密码
     builder.append_header((
         "WWW-Authenticate",
         format!("Bearer realm=\"https://{}/auth/token\",service=\"docker-registry-proxy\"", host)
     ));
 
-
+    // 获取响应体
     let body = match response.text().await {
         Ok(text) => text,
         Err(_) => String::from("无法读取上游响应内容")
@@ -224,7 +247,7 @@ async fn proxy_challenge(req: HttpRequest) -> Result<HttpResponse> {
 async fn health_check() -> impl Responder {
     HttpResponse::Ok()
         .content_type("text/plain; charset=utf-8")
-        .body("服务正常运行\n")
+        .body("服务正常运行 - Health check passed\n")
 }
 
 // 新增HTTP到HTTPS的重定向处理函数
@@ -247,10 +270,12 @@ async fn main() -> std::io::Result<()> {
         .default_filter_or("actix_web=info"))
         .init();
     
-    println!("服务器启动在 HTTP 端口 80 和 HTTPS 端口 443");
+    // 获取端口号，默认为8080
+    let port = std::env::var("PORT").unwrap_or_else(|_| "8080".to_string()).parse::<u16>().unwrap_or(8080);
+    println!("服务器启动在 HTTP 端口 {}", port);
     
-    // 创建HTTPS应用配置
-    let https_app = || {
+    // 创建HTTP应用配置
+    let app = || {
         App::new()
             .route("/v2/", web::get().to(proxy_challenge))
             .route("/auth/token", web::get().to(get_token))
@@ -263,28 +288,19 @@ async fn main() -> std::io::Result<()> {
                    web::route()
                    .guard(guard::Any(guard::Get()).or(guard::Head()))
                    .to(handle_no_namespace_request))
+            // 添加一个简单的根路径处理
+            .route("/", web::get().to(|| async {
+                HttpResponse::Ok()
+                    .content_type("text/plain; charset=utf-8")
+                    .body("Docker Registry 代理服务\n使用方法: 将此服务URL添加到Docker的registry-mirrors配置中\n")
+            }))
     };
     
-    // 创建HTTP重定向应用配置
-    let http_app = || {
-        App::new()
-            .default_service(web::route().to(redirect_to_https))
-    };
-    
-    // 加载TLS配置
-    let rustls_config = load_rustls_config().expect("无法加载TLS配置");
-    
-    // 同时启动HTTP和HTTPS服务器
-    let http_server = HttpServer::new(http_app)
-        .bind(("0.0.0.0", 80))?
-        .run();
-        
-    let https_server = HttpServer::new(https_app)
-        .bind_rustls(("0.0.0.0", 443), rustls_config)?
-        .run();
-    
-    // 等待两个服务器都完成
-    futures::future::try_join(http_server, https_server).await?;
+    // 启动HTTP服务器
+    HttpServer::new(app)
+        .bind(("0.0.0.0", port))?
+        .run()
+        .await?;
     
     Ok(())
 }
