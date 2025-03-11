@@ -64,6 +64,11 @@ CERT_PATH=/path/to/your/cert.pem KEY_PATH=/path/to/your/key.pem ./target/release
 
 对于 Linux 系统，配置文件通常位于 `/etc/docker/daemon.json`。
 
+**注意**: 
+- Docker 不允许在 registry-mirrors URL 中包含用户名和密码
+- 如果使用 expose_port 命令暴露服务，会添加 HTTP Basic 认证，这会导致 Docker 无法使用
+- 建议使用公共云平台部署，或者使用本地 IP 地址直接访问服务
+
 ### 健康检查
 
 可以通过访问以下端点检查服务是否正常运行：
@@ -71,6 +76,105 @@ CERT_PATH=/path/to/your/cert.pem KEY_PATH=/path/to/your/key.pem ./target/release
 ```
 https://your-proxy-domain.com/health
 ```
+
+## 无认证版本
+
+为了与 Docker 的 registry-mirrors 配置兼容，我们提供了一个无需认证的版本。此版本修改了服务的行为，使其在收到认证请求时返回空结果而不是要求认证。
+
+### 使用方法
+
+1. 克隆仓库并切换到无认证分支：
+   ```bash
+   git clone https://github.com/harrisonwang/docxy.git
+   cd docxy
+   git checkout devin/1741594099-remove-auth-requirement-v2
+   ```
+
+2. 构建并运行服务：
+   ```bash
+   cargo build --release
+   PORT=8080 ./target/release/docxy
+   ```
+
+   或者使用提供的脚本：
+   ```bash
+   ./deploy-without-auth.sh
+   ```
+
+3. 在 Docker 配置中使用本地 IP 地址：
+   ```json
+   {
+     "registry-mirrors": ["http://your-server-ip:8080"]
+   }
+   ```
+
+4. 重启 Docker 服务：
+   ```bash
+   sudo systemctl restart docker
+   ```
+
+## 部署到云平台
+
+要获得一个公共可访问的 URL，您可以将服务部署到云平台。
+
+### 部署到 Render.com
+
+1. 创建 render.yaml 配置文件:
+   ```yaml
+   services:
+     - type: web
+       name: docxy-registry
+       env: docker
+       dockerfilePath: ./Dockerfile
+       plan: free
+       healthCheckPath: /health
+       envVars:
+         - key: PORT
+           value: 8080
+   ```
+
+2. 在 Render.com 上创建账户并部署:
+   - 创建账户: https://render.com/signup
+   - 创建新服务: https://dashboard.render.com/new/web-service
+   - 选择 "Build and deploy from a Git repository"
+   - 连接 GitHub 仓库
+   - 选择 "Docker" 作为环境
+   - 部署服务
+
+3. 获取部署 URL:
+   - 部署完成后，Render.com 会提供一个公共 URL
+   - 例如: https://docxy-registry.onrender.com
+
+4. 在 Docker 配置中使用此 URL:
+   ```json
+   {
+     "registry-mirrors": ["https://docxy-registry.onrender.com"]
+   }
+   ```
+
+### 部署到 Fly.io
+
+Fly.io 是另一个不需要认证的云平台选项，详细部署步骤请参阅 [DEPLOYMENT.md](./DEPLOYMENT.md) 文件。
+
+## 关于认证问题
+
+### expose_port 命令的认证问题
+
+使用 expose_port 命令暴露服务时，会添加 nginx 认证层，这会导致 Docker 无法使用该服务作为 registry-mirrors。nginx 认证配置类似于：
+
+```nginx
+auth_basic "Restricted Area";
+auth_basic_user_file /path/to/.htpasswd;
+```
+
+这种认证无法通过 expose_port 命令的参数移除。要解决此问题，有两种方法：
+
+1. 使用本地 IP 地址直接访问服务（不经过 nginx）
+2. 部署到不添加认证的云平台，如 Fly.io
+
+详细的部署说明请参阅 [DEPLOYMENT.md](./DEPLOYMENT.md) 文件。
+
+更多部署选项和详细说明，请参阅 [DEPLOYMENT.md](./DEPLOYMENT.md) 文件。
 
 ## API 端点
 
