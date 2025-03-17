@@ -1,0 +1,49 @@
+name: 构建与发布
+
+on:
+  push:
+    tags:
+      - 'v*' # 当推送以v开头的标签时触发，例如v1.0.0
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: 构建与发布
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+      
+      - name: 设置 Rust 环境
+        uses: dtolnay/rust-toolchain@stable
+      
+      - name: 构建发布版本
+        run: cargo build --release
+      
+      - name: 准备二进制文件
+        run: |
+          cp target/release/docxy docxy-linux-amd64
+          chmod +x docxy-linux-amd64
+      
+      - name: 获取版本号
+        id: get_version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+      
+      - name: 创建 Release
+        id: create_release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref }}
+          name: docxy ${{ steps.get_version.outputs.VERSION }}
+          draft: false
+          prerelease: false
+          body: |
+            Docker Registry 代理服务 v${{ steps.get_version.outputs.VERSION }}
+            
+            ## 构建版本
+            - Linux AMD64 (x86_64)
+          files: |
+            ./docxy-linux-amd64 

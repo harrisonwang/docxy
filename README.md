@@ -28,10 +28,10 @@ cargo build --release
 
 ```bash
 # 使用默认证书路径
-./target/release/docker-registry-proxy
+./target/release/docxy
 
 # 使用自定义证书路径
-CERT_PATH=/path/to/your/cert.pem KEY_PATH=/path/to/your/key.pem ./target/release/docker-registry-proxy
+CERT_PATH=/path/to/your/cert.pem KEY_PATH=/path/to/your/key.pem ./target/release/docxy
 ```
 
 ## 配置选项

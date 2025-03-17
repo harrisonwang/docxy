@@ -4,8 +4,23 @@ use rustls::{Certificate, PrivateKey, ServerConfig};
 use rustls_pemfile;
 use std::fs::File;
 use std::io::BufReader;
+use futures::stream::StreamExt;
+use std::time::Duration;
+use lazy_static::lazy_static;
 
-async fn redirect(
+// 将 Docker Registry URL 定义为常量
+const DOCKER_REGISTRY_URL: &str = "https://registry-1.docker.io";
+
+lazy_static! {
+    static ref HTTP_CLIENT: reqwest::Client = reqwest::Client::builder()
+        .pool_max_idle_per_host(10)  // 根据负载调整
+        .pool_idle_timeout(Duration::from_secs(90))
+        .timeout(Duration::from_secs(30))
+        .build()
+        .unwrap();
+}
+
+async fn handle_no_namespace_request(
     req: HttpRequest,
     path: web::Path<(String, String, String)>,
 ) -> Result<HttpResponse> {
@@ -47,18 +62,14 @@ async fn handle_request(
     // 获取路径参数
     let (image_name, path_type, reference) = path.into_inner();
 
-    // 构建目标URL
-    let docker_registry = "https://registry-1.docker.io";
+    // 使用常量构建目标URL
     let path = format!("/v2/library/{}/{}/{}", image_name, path_type, reference);
-
-    // 创建 HTTP 客户端
-    let client = reqwest::Client::new();
 
     // 构建请求，根据原始请求的方法选择 HEAD 或 GET
     let mut request_builder = if req.method() == &actix_web::http::Method::HEAD {
-        client.head(format!("{}{}", docker_registry, path))
+        HTTP_CLIENT.head(format!("{}{}", DOCKER_REGISTRY_URL, path))
     } else {
-        client.get(format!("{}{}", docker_registry, path))
+        HTTP_CLIENT.get(format!("{}{}", DOCKER_REGISTRY_URL, path))
     };
 
     // 添加认证头
@@ -101,14 +112,17 @@ async fn handle_request(
         // HEAD 请求，不需要返回响应体
         Ok(builder.finish())
     } else {
-        // GET 请求，返回完整响应体
-        match response.bytes().await {
-            Ok(bytes) => Ok(builder.body(bytes)),
-            Err(e) => {
-                eprintln!("读取响应体失败: {}", e);
-                Ok(HttpResponse::InternalServerError().body(format!("无法读取响应内容: {}", e)))
-            }
-        }
+        // GET 请求，使用流式传输响应体
+        let stream = response
+            .bytes_stream()
+            .map(|result| {
+                result.map_err(|err| {
+                    eprintln!("流读取错误: {}", err);
+                    actix_web::error::ErrorInternalServerError(err)
+                })
+            });
+            
+        Ok(builder.streaming(stream))
     }
 }
 
@@ -124,7 +138,6 @@ async fn get_token(req: HttpRequest) -> Result<HttpResponse> {
     };
 
     // 构建请求 Docker Hub 认证服务的 URL
-    let client = reqwest::Client::new();
     let mut auth_url = reqwest::Url::parse("https://auth.docker.io/token").unwrap();
 
     // 添加查询参数
@@ -136,7 +149,7 @@ async fn get_token(req: HttpRequest) -> Result<HttpResponse> {
     }
 
     // 发送请求到 Docker Hub 认证服务
-    let response = match client.get(auth_url).send().await {
+    let response = match HTTP_CLIENT.get(auth_url).send().await {
         Ok(resp) => resp,
         Err(_) => {
             return Ok(HttpResponse::InternalServerError()
@@ -176,15 +189,12 @@ fn process_scope(scope: &str) -> String {
 }
 
 async fn proxy_challenge(req: HttpRequest) -> Result<HttpResponse> {
-    let upstream = "https://registry-1.docker.io";
-
     let host = match req.connection_info().host() {
         host if host.contains(':') => host.to_string(),
         host => format!("{}", host)
     };
 
-    let client = reqwest::Client::new();
-    let response = match client.get(format!("{}/v2/", upstream)).send().await {
+    let response = match HTTP_CLIENT.get(format!("{}/v2/", DOCKER_REGISTRY_URL)).send().await {
         Ok(resp) => resp,
         Err(_) => {
             return Ok(HttpResponse::InternalServerError()
@@ -199,7 +209,7 @@ async fn proxy_challenge(req: HttpRequest) -> Result<HttpResponse> {
 
     builder.append_header((
         "WWW-Authenticate",
-        format!("Bearer realm=\"http://{}/auth/token\",service=\"docker-registry-proxy\"", host)
+        format!("Bearer realm=\"https://{}/auth/token\",service=\"docker-registry-proxy\"", host)
     ));
 
 
@@ -252,7 +262,7 @@ async fn main() -> std::io::Result<()> {
             .route("/v2/{image_name}/{path_type}/{reference:.+}",
                    web::route()
                    .guard(guard::Any(guard::Get()).or(guard::Head()))
-                   .to(redirect))
+                   .to(handle_no_namespace_request))
     };
     
     // 创建HTTP重定向应用配置
