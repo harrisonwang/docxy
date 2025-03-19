@@ -1,63 +1,170 @@
-# Docker Registry 代理
 
-这是一个轻量级的 Docker Registry 代理服务，它通过代理 Docker Hub 的请求，从而解决国内无法下载 Docker 镜像的问题。
+# Docxy
 
-## 一键安装
+轻量级 Docker 镜像代理服务，解决国内访问 Docker Hub 受限问题。
 
-TODO
+## 背景
 
-## 使用方法
+### Docker镜像仓库简介
+
+Docker 镜像仓库是存储和分发 Docker 容器镜像的服务，为容器化应用提供中心化存储。这些仓库允许开发者推送、存储、管理和拉取容器镜像，简化了应用的分发和部署流程。
+
+### 镜像仓库类型
+
+- **官方镜像仓库**: Docker Hub，由 Docker 公司维护的官方仓库
+- **第三方独立镜像仓库**: 如 AWS ECR、Google GCR、阿里云 ACR 等，用于发布和共享自有镜像
+- **镜像加速服务**: 如清华 TUNA 镜像站、阿里云镜像加速器等，提供 Docker Hub 的镜像加速服务
+
+> [!NOTE]
+> 受网络限制影响，国内直接访问 Docker Hub 困难，多数镜像加速服务也已停止服务。
+
+### 为什么需要镜像代理
+
+镜像代理是连接 Docker 客户端与 Docker Hub 的中间层服务，不存储实际镜像，仅转发请求，有效解决:
+
+- 网络访问限制问题
+- 提升镜像下载速度
+
+Docxy 就是这样一个镜像代理服务，目标是通过自建镜像代理，绕过网络封锁并加速镜像下载。
+
+## 技术原理
+
+Docxy 实现了完整的 Docker Registry API 代理，无需修改 Docker 客户端配置即可无缝使用。
+
+### 系统架构
+
+```mermaid
+graph TD
+    Client[Docker 客户端] -->|发送请求| HttpServer[HTTP 服务器]
+    
+    subgraph "Docker 镜像代理服务"
+        HttpServer -->|路由请求| RouterHandler[路由处理器]
+        
+        RouterHandler -->|/v2/| ChallengeHandler[质询处理器<br>proxy_challenge]
+        RouterHandler -->|/auth/token| TokenHandler[令牌处理器<br>get_token]
+        RouterHandler -->|/v2/namespace/image/path_type| RequestHandler[请求处理器<br>handle_request]
+        RouterHandler -->|/health| HealthCheck[健康检查]
+        
+        ChallengeHandler --> HttpClient
+        TokenHandler --> HttpClient
+        RequestHandler --> HttpClient
+        
+    end
+    
+    HttpClient[HTTP 客户端<br>reqwest]
+    
+    HttpClient -->|认证请求| DockerAuth[Docker Auth<br>auth.docker.io]
+    HttpClient -->|镜像请求| DockerRegistry[Docker Registry<br>registry-1.docker.io]
+```
+
+### 请求流程
+
+```mermaid
+sequenceDiagram
+    actor Client as Docker 客户端
+    participant Proxy as Docxy Proxy
+    participant Registry as Docker Registry
+    participant Auth as Docker Auth Service
+    
+    %% 质询请求处理
+    Client->>Proxy: GET /v2/
+    Proxy->>+Registry: GET /v2/
+    Registry-->>-Proxy: 401 Unauthorized (WWW-Authenticate)
+    Proxy->>Proxy: 修改 WWW-Authenticate 头，指向本地 /auth/token
+    Proxy-->>Client: 401 返回修改后的认证头
+    
+    %% 令牌获取
+    Client->>Proxy: GET /auth/token?scope=repository:redis:pull
+    Proxy->>+Auth: GET /token?service=registry.docker.io&scope=repository:library/redis:pull
+    Auth-->>-Proxy: 200 返回令牌
+    Proxy-->>Client: 200 返回原始令牌响应
+    
+    %% 镜像元数据请求处理
+    Client->>Proxy: GET /v2/library/redis/manifests/latest
+    Proxy->>+Registry: 转发请求（携带认证头和Accept头）
+    Registry-->>-Proxy: 返回镜像清单
+    Proxy-->>Client: 返回镜像清单（保留原始响应头和状态码）
+    
+    %% 处理二进制数据
+    Client->>Proxy: GET /v2/library/redis/blobs/{digest}
+    Proxy->>+Registry: 转发 blob 请求
+    Registry-->>-Proxy: 返回 blob 数据
+    Proxy-->>Client: 流式返回 blob 数据
+```
+
+## 功能特性
+
+- **透明代理**: 完全兼容 Docker Registry API v2
+- **无缝集成**: 仅需配置镜像源，无需更改使用习惯
+- **高性能传输**: 采用流式处理响应数据，支持大型镜像下载
+- **TLS 加密**: 内置 HTTPS 支持，确保数据传输安全
+- **加速官方镜像下载**: 提供更稳定的连接
+- **绕过网络封锁**: 解决国内访问限制问题
+
+## 快速开始
+
+### 安装
+
+1. 克隆仓库
+
+  ```bash
+  git clone https://github.com/harrisonwang/docxy.git
+  ```
+
+2. 进入项目目录
+
+  ```bash
+  cd /opt/docxy
+  ```
+
+3. 启动服务
+
+  ```bash
+  cargo run
+  ```
+
+### 构建
+
+执行以下命令，构建二进制包：
+
+```bash
+cargo build --release
+```
+
+### 运行 Docxy 服务端
+
+```bash
+export CERT_PATH=/xxx/fullchain.cer
+export KEY_PATH=/xxx/xxx.com.key
+/opt/docxy/target/release/docxy
+```
+
+> [!TIP]
+> 请提前使用 acme.sh 申请好 TLS 证书
 
 ### 配置 Docker 客户端
 
-在 Docker 配置文件中添加代理设置：
+编辑 `/etc/docker/daemon.json` 配置文件，添加以下代理设置：
 
 ```json
 {
-  "registry-mirrors": ["https://your-proxy-domain.com"]
+  "registry-mirrors": ["https://xxx.com"]
 }
 ```
-
-对于 Linux 系统，配置文件通常位于 `/etc/docker/daemon.json`。
 
 ### 健康检查
 
 可以通过访问以下端点检查服务是否正常运行：
 
 ```bash
-curl https://your-proxy-domain.com/health
+curl https://xxx.com/health
 ```
 
-## API 端点
+## API参考
 
-| 端点 | 描述 |
-|------|------|
-| `/health` | 健康检查接口 |
-| `/v2/` | Docker Registry API v2 入口 |
-| `/auth/token` | 认证令牌获取接口 |
-| `/v2/library/{image}/{path_type}/{reference}` | 镜像资源访问接口 |
-
-## 开发
-
-### 依赖
-
-本项目使用 Cargo.toml 中定义的依赖：
-
-- actix-web: Web 框架
-- reqwest: HTTP 客户端
-- rustls: TLS 实现
-- tokio: 异步运行时
-- 其他辅助库
-
-### 构建与测试
-
-```bash
-# 构建
-cargo build
-
-# 测试
-cargo test
-
-# 运行（开发模式）
-cargo run
-```
+| 端点 | 方法 | 描述 |
+|------|------|------|
+| `/health` | GET | 健康检查接口 |
+| `/v2/` | GET | Docker Registry API v2 入口点及认证质询 |
+| `/auth/token` | GET | 认证令牌获取接口 |
+| `/v2/{namespace}/{image}/{path_type}/{reference}` | GET/HEAD | 镜像资源访问接口，支持manifests和blobs等 |
