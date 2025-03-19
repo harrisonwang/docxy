@@ -29,7 +29,7 @@ Docxy 就是这样一个镜像代理服务，目标是通过自建镜像代理�
 
 ## 技术原理
 
-Docxy 实现了完整的 Docker Registry API 代理，无需修改 Docker 客户端配置即可无缝使用。
+Docxy 实现了完整的 Docker Registry API 代理，仅需添加 Docker 客户端代理配置即可使用。
 
 ### 系统架构
 
@@ -168,3 +168,8 @@ curl https://xxx.com/health
 | `/v2/` | GET | Docker Registry API v2 入口点及认证质询 |
 | `/auth/token` | GET | 认证令牌获取接口 |
 | `/v2/{namespace}/{image}/{path_type}/{reference}` | GET/HEAD | 镜像资源访问接口，支持manifests和blobs等 |
+
+## 其它方案
+
+- [Cloudflare Worker 实现镜像代理](https://voxsay.com/posts/china-docker-registry-proxy-guide/)：谨慎使用，可能导致 Cloudflare 封号。
+- [Nginx 实现镜像代理](https://voxsay.com/posts/china-docker-registry-proxy-guide/)：仅代理了 registry-1.docker.io，还存在发往 auth.docker.io 的请求，一旦 auth.docker.io 也被封锁，将无法正常使用。
