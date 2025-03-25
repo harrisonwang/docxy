@@ -1,4 +1,3 @@
-
 # Docxy
 
 轻量级 Docker 镜像代理服务，解决国内访问 Docker Hub 受限问题。
@@ -11,9 +10,9 @@ Docker 镜像仓库是存储和分发 Docker 容器镜像的服务，为容器�
 
 ### 镜像仓库类型
 
-- **官方镜像仓库**: Docker Hub，由 Docker 公司维护的官方仓库
-- **第三方独立镜像仓库**: 如 AWS ECR、Google GCR、阿里云 ACR 等，用于发布和共享自有镜像
-- **镜像加速服务**: 如清华 TUNA 镜像站、阿里云镜像加速器等，提供 Docker Hub 的镜像加速服务
+- **官方镜像仓库**：Docker Hub，由 Docker 公司维护的官方仓库
+- **第三方独立镜像仓库**：如 AWS ECR、Google GCR、阿里云 ACR 等，用于发布和共享自有镜像
+- **镜像加速服务**：如清华 TUNA 镜像站、阿里云镜像加速器等，提供 Docker Hub 的镜像加速服务
 
 > [!NOTE]
 > 受网络限制影响，国内直接访问 Docker Hub 困难，多数镜像加速服务也已停止服务。
@@ -94,12 +93,12 @@ sequenceDiagram
 
 ## 功能特性
 
-- **透明代理**: 完全兼容 Docker Registry API v2
-- **无缝集成**: 仅需配置镜像源，无需更改使用习惯
-- **高性能传输**: 采用流式处理响应数据，支持大型镜像下载
-- **TLS 加密**: 内置 HTTPS 支持，确保数据传输安全
-- **加速官方镜像下载**: 提供更稳定的连接
-- **绕过网络封锁**: 解决国内访问限制问题
+- **透明代理**：完全兼容 Docker Registry API v2
+- **无缝集成**：仅需配置镜像源，无需更改使用习惯
+- **高性能传输**：采用流式处理响应数据，支持大型镜像下载
+- **TLS 加密**：内置 HTTPS 支持，确保数据传输安全
+- **加速官方镜像下载**：提供更稳定的连接
+- **绕过网络封锁**：解决国内访问限制问题
 
 ## 快速开始
 
@@ -173,3 +172,30 @@ curl https://xxx.com/health
 
 - [Cloudflare Worker 实现镜像代理](https://voxsay.com/posts/china-docker-registry-proxy-guide/)：谨慎使用，可能导致 Cloudflare 封号。
 - [Nginx 实现镜像代理](https://voxsay.com/posts/china-docker-registry-proxy-guide/)：仅代理了 registry-1.docker.io，还存在发往 auth.docker.io 的请求，一旦 auth.docker.io 也被封锁，将无法正常使用。
+
+## Docker hub pull 使用和限制
+
+镜像代理服务通过转发请求到 Docker Hub 来提供镜像下载服务。由于 Docker Hub 实施了速率限制策略，这直接影响到代理服务的使用限制。以下是具体的限制说明：
+
+### 拉取定义
+
+Docker Hub 对镜像拉取（pull）的定义如下：
+- 一次 Docker pull 包含版本检查和下载过程
+- 版本检查（version check）不计入使用限制
+- 普通镜像拉取计为 1 次
+- 多架构镜像拉取会按架构数量计数（例如：支持 amd64 和 arm64 的镜像拉取计为 2 次）
+
+### 用户类型和限制
+
+由于 Docker Hub 的限制政策，不同类型的用户有不同的拉取限制：
+
+| 用户类型                     | 每小时 pull 速率限制 | 说明 |
+| ---------------------------- | -------------------- | ---- |
+| Business (authenticated)     | 无限制               | 遵循合理使用原则 |
+| Team (authenticated)         | 无限制               | 遵循合理使用原则 |
+| Pro (authenticated)          | 无限制               | 遵循合理使用原则 |
+| **Personal (authenticated)** | **100**             | 按账户计算 |
+| **Unauthenticated users**   | **10**              | 按 IP 地址计算 |
+
+> [!WARNING]
+> 注意：此限制将从 2025 年 4 月 1 日起生效
