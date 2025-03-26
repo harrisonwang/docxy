@@ -1,10 +1,14 @@
 # Docxy
 
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Rust](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org)
+[![GitHub release](https://img.shields.io/github/v/release/harrisonwang/docxy)](https://github.com/harrisonwang/docxy/releases)
+
 轻量级 Docker 镜像代理服务，解决国内访问 Docker Hub 受限问题。
 
 ## 背景
 
-### Docker镜像仓库简介
+### Docker 镜像仓库简介
 
 Docker 镜像仓库是存储和分发 Docker 容器镜像的服务，为容器化应用提供中心化存储。这些仓库允许开发者推送、存储、管理和拉取容器镜像，简化了应用的分发和部署流程。
 
@@ -19,12 +23,31 @@ Docker 镜像仓库是存储和分发 Docker 容器镜像的服务，为容器�
 
 ### 为什么需要镜像代理
 
-镜像代理是连接 Docker 客户端与 Docker Hub 的中间层服务，不存储实际镜像，仅转发请求，有效解决:
+镜像代理是连接 Docker 客户端与 Docker Hub 的中间层服务，不存储实际镜像，仅转发请求，有效解决：
 
 - 网络访问限制问题
 - 提升镜像下载速度
 
 Docxy 就是这样一个镜像代理服务，目标是通过自建镜像代理，绕过网络封锁并加速镜像下载。
+
+### 镜像代理的使用限制
+
+Docker Hub 对镜像拉取实施了严格的速率限制策略，使用代理服务时，存在以下限制:
+
+- 如果未登录，每个 IP 地址每小时仅允许拉取 10 次镜像
+- 如果使用个人账户登录，每小时可以拉取 100 次镜像
+- 其他类型账户的具体限制请参考下表：
+
+| 用户类型                     | pull 速率限制     |
+| ---------------------------- | ----------------- |
+| Business (authenticated)     | 无限制            |
+| Team (authenticated)         | 无限制            |
+| Pro (authenticated)          | 无限制            |
+| **Personal (authenticated)** | **100/小时/账户** |
+| **Unauthenticated users**    | **10/小时/IP**    |
+
+> [!WARNING]
+> 注意：此限制将从 2025 年 4 月 1 日起生效
 
 ## 技术原理
 
@@ -89,6 +112,25 @@ sequenceDiagram
     Proxy->>+Registry: 转发 blob 请求
     Registry-->>-Proxy: 返回 blob 数据
     Proxy-->>Client: 流式返回 blob 数据
+```
+
+### 证书处理流程
+
+```mermaid
+flowchart TD
+    A[启动服务] --> B{检查环境变量}
+    B -->|存在| C[使用指定证书路径]
+    B -->|不存在| D[使用默认证书路径]
+    C --> E[加载证书文件]
+    D --> E
+    E --> F{证书类型判断}
+    F -->|ECC| G[加载ECC私钥]
+    F -->|RSA| H[加载RSA私钥]
+    F -->|PKCS8| I[加载PKCS8私钥]
+    G --> J[初始化TLS配置]
+    H --> J
+    I --> J
+    J --> K[启动HTTPS服务]
 ```
 
 ## 功能特性
@@ -173,29 +215,6 @@ curl https://xxx.com/health
 - [Cloudflare Worker 实现镜像代理](https://voxsay.com/posts/china-docker-registry-proxy-guide/)：谨慎使用，可能导致 Cloudflare 封号。
 - [Nginx 实现镜像代理](https://voxsay.com/posts/china-docker-registry-proxy-guide/)：仅代理了 registry-1.docker.io，还存在发往 auth.docker.io 的请求，一旦 auth.docker.io 也被封锁，将无法正常使用。
 
-## Docker hub pull 使用和限制
+## 许可证
 
-镜像代理服务通过转发请求到 Docker Hub 来提供镜像下载服务。由于 Docker Hub 实施了速率限制策略，这直接影响到代理服务的使用限制。以下是具体的限制说明：
-
-### 拉取定义
-
-Docker Hub 对镜像拉取（pull）的定义如下：
-- 一次 Docker pull 包含版本检查和下载过程
-- 版本检查（version check）不计入使用限制
-- 普通镜像拉取计为 1 次
-- 多架构镜像拉取会按架构数量计数（例如：支持 amd64 和 arm64 的镜像拉取计为 2 次）
-
-### 用户类型和限制
-
-由于 Docker Hub 的限制政策，不同类型的用户有不同的拉取限制：
-
-| 用户类型                     | 每小时 pull 速率限制 | 说明 |
-| ---------------------------- | -------------------- | ---- |
-| Business (authenticated)     | 无限制               | 遵循合理使用原则 |
-| Team (authenticated)         | 无限制               | 遵循合理使用原则 |
-| Pro (authenticated)          | 无限制               | 遵循合理使用原则 |
-| **Personal (authenticated)** | **100**             | 按账户计算 |
-| **Unauthenticated users**   | **10**              | 按 IP 地址计算 |
-
-> [!WARNING]
-> 注意：此限制将从 2025 年 4 月 1 日起生效
+本项目采用 MIT 许可证，查看 [LICENSE](LICENSE) 了解更多信息。
