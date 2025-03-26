@@ -3,6 +3,7 @@
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org)
 [![GitHub release](https://img.shields.io/github/v/release/harrisonwang/docxy)](https://github.com/harrisonwang/docxy/releases)
+[![Docker](https://img.shields.io/badge/docker-28%2B-blue.svg)](https://www.docker.com)
 
 轻量级 Docker 镜像代理服务，解决国内访问 Docker Hub 受限问题。
 
