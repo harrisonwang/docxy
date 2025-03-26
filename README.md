@@ -144,52 +144,59 @@ flowchart LR
 
 ## 快速开始
 
-### 安装
+### 一键部署
+
+```bash
+bash <(curl -Ls https://raw.githubusercontent.com/harrisonwang/docxy/main/install.sh)
+```
+
+> [!WARNING]
+> 注意：ZeroSSL 证书颁发机构要求注册账户后才能申请证书，为了方便使用，脚本强制使用 Let's Encrypt 作为证书颁发机构，强制重新申请证书。
+
+### 开发
 
 1. 克隆仓库
 
-  ```bash
-  git clone https://github.com/harrisonwang/docxy.git
-  ```
+   ```bash
+   cd /opt
+   git clone https://github.com/harrisonwang/docxy.git
+   ```
 
 2. 进入项目目录
 
-  ```bash
-  cd /opt/docxy
-  ```
+   ```bash
+   cd /opt/docxy
+   ```
 
-3. 启动服务
+3. 配置证书（以 test.com 域名为例）
 
-  ```bash
-  cargo run
-  ```
+   ```bash
+   export CERT_PATH=/root/.acme.sh/test.com_ecc/fullchain.cer
+   export KEY_PATH=/root/.acme.sh/test.com_ecc/test.com.key
+   ```
 
-### 构建
+   > [!TIP]
+   > 请提前使用 acme.sh 申请好 TLS 证书
 
-执行以下命令，构建二进制包：
+4. 启动服务
 
-```bash
-cargo build --release
-```
+   ```bash
+   cargo run
+   ```
 
-### 运行 Docxy 服务端
+5. 构建二进制包
 
-```bash
-export CERT_PATH=/xxx/fullchain.cer
-export KEY_PATH=/xxx/xxx.com.key
-/opt/docxy/target/release/docxy
-```
+   ```bash
+   cargo build --release
+   ```
 
-> [!TIP]
-> 请提前使用 acme.sh 申请好 TLS 证书
-
-### 配置 Docker 客户端
+### Docker 客户端配置
 
 编辑 `/etc/docker/daemon.json` 配置文件，添加以下代理设置：
 
 ```json
 {
-  "registry-mirrors": ["https://xxx.com"]
+  "registry-mirrors": ["https://test.com"]
 }
 ```
 
@@ -198,7 +205,7 @@ export KEY_PATH=/xxx/xxx.com.key
 可以通过访问以下端点检查服务是否正常运行：
 
 ```bash
-curl https://xxx.com/health
+curl https://test.com/health
 ```
 
 ## API参考
