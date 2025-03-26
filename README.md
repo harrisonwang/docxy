@@ -117,7 +117,7 @@ sequenceDiagram
 ### 证书处理流程
 
 ```mermaid
-flowchart TD
+flowchart LR
     A[启动服务] --> B{检查环境变量}
     B -->|存在| C[使用指定证书路径]
     B -->|不存在| D[使用默认证书路径]
