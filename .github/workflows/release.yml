@@ -3,14 +3,15 @@ name: 构建与发布
 on:
   push:
     tags:
-      - 'v*' # 当推送以v开头的标签时触发，例如v1.0.0
+      - 'v*'
+  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  build-and-release:
-    name: 构建与发布
+  build-and-release-amd64:
+    name: 构建与发布 AMD64
     runs-on: ubuntu-latest
     
     steps:
@@ -45,5 +46,32 @@ jobs:
             
             ## 构建版本
             - Linux AMD64 (x86_64)
+            - Linux ARM (aarch64)
           files: |
-            ./docxy-linux-amd64 
+            ./docxy-linux-amd64
+
+  build-and-release-arm:
+    name: 构建与发布 ARM
+    runs-on: ubuntu-22.04-arm
+    needs: build-and-release-amd64
+    
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+      
+      - name: 设置 Rust 环境
+        uses: dtolnay/rust-toolchain@stable
+      
+      - name: 构建发布版本
+        run: cargo build --release
+      
+      - name: 准备二进制文件
+        run: |
+          cp target/release/docxy docxy-linux-arm
+          chmod +x docxy-linux-arm
+      
+      - name: 上传到已存在的 Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ./docxy-linux-arm

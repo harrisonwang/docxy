@@ -123,7 +123,7 @@ download_docxy() {
   mkdir -p /usr/local/bin
   
   # 下载二进制文件
-  curl -L https://github.com/harrisonwang/docxy/releases/download/v0.1.0/docxy-linux-amd64 -o /usr/local/bin/docxy || {
+  curl -L https://github.com/harrisonwang/docxy/releases/download/v0.2.0/docxy-linux-amd64 -o /usr/local/bin/docxy || {
     echo -e "${RED}下载 docxy 失败${NC}"
     exit 1
   }

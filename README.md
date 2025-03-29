@@ -179,8 +179,8 @@ bash <(curl -Ls https://raw.githubusercontent.com/harrisonwang/docxy/main/instal
    export KEY_PATH=/root/.acme.sh/test.com_ecc/test.com.key
    ```
 
-   > [!TIP]
-   > 请提前使用 acme.sh 申请好 TLS 证书
+> [!TIP]
+> 请提前使用 acme.sh 申请好 TLS 证书
 
 4. 启动服务
 
