@@ -73,6 +73,5 @@ jobs:
       - name: 上传到已存在的 Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref }}
           files: |
             ./docxy-linux-arm
