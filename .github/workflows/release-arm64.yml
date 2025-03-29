@@ -12,7 +12,7 @@ permissions:
 jobs:
   build-and-release-arm64:
     name: 构建与发布 ARM64
-    runs-on: ubuntu-latest-arm64
+    runs-on: ubuntu-22.04-arm64
     
     steps:
       - name: 检出代码
