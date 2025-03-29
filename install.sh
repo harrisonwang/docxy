@@ -122,8 +122,29 @@ download_docxy() {
   # 创建目录
   mkdir -p /usr/local/bin
   
+  # 检测系统架构
+  ARCH=$(uname -m)
+  if [ "$ARCH" = "x86_64" ]; then
+    BINARY="docxy-linux-amd64"
+  elif [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then
+    BINARY="docxy-linux-arm"
+  else
+    echo -e "${RED}不支持的系统架构: $ARCH${NC}"
+    exit 1
+  fi
+  
+  # 获取最新版本号
+  echo -e "${YELLOW}正在获取最新版本...${NC}"
+  LATEST_VERSION=$(curl -s https://api.github.com/repos/harrisonwang/docxy/releases/latest | grep -oP '"tag_name": "\K(.*)(?=")' || echo "v0.2.0")
+  if [ -z "$LATEST_VERSION" ]; then
+    LATEST_VERSION="v0.2.0"
+    echo -e "${YELLOW}无法获取最新版本，使用默认版本: $LATEST_VERSION${NC}"
+  else
+    echo -e "${GREEN}找到最新版本: $LATEST_VERSION${NC}"
+  fi
+  
   # 下载二进制文件
-  curl -L https://github.com/harrisonwang/docxy/releases/download/v0.2.0/docxy-linux-amd64 -o /usr/local/bin/docxy || {
+  curl -L "https://github.com/harrisonwang/docxy/releases/download/$LATEST_VERSION/$BINARY" -o /usr/local/bin/docxy || {
     echo -e "${RED}下载 docxy 失败${NC}"
     exit 1
   }
