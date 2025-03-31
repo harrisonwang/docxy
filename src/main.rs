@@ -243,15 +243,49 @@ async fn redirect_to_https(req: HttpRequest) -> HttpResponse {
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    // 使用env_logger的Builder直接设置日志级别，不需要修改环境变量
+    // 使用env_logger的Builder直接设置日志级别
     env_logger::Builder::from_env(env_logger::Env::default()
         .default_filter_or("actix_web=info"))
         .init();
     
-    println!("服务器启动在 HTTP 端口 80 和 HTTPS 端口 443");
+    // 检查是否在代理模式下运行
+    let behind_proxy = env::var("DOCXY_BEHIND_PROXY")
+        .unwrap_or_else(|_| "false".to_string()) == "true";
     
-    // 创建HTTPS应用配置
-    let https_app = || {
+    // 从环境变量获取端口配置
+    let http_enabled = env::var("DOCXY_HTTP_ENABLED")
+        .unwrap_or_else(|_| "true".to_string()) == "true";
+    
+    // 在代理模式下默认使用9000端口
+    let default_http_port = if behind_proxy { 9000 } else { 80 };
+    let http_port = get_env_port("DOCXY_HTTP_PORT", default_http_port);
+    
+    // 在代理模式下自动禁用HTTPS，否则使用环境变量
+    let https_enabled = if behind_proxy {
+        false
+    } else {
+        env::var("DOCXY_HTTPS_ENABLED")
+            .unwrap_or_else(|_| "true".to_string()) == "true"
+    };
+    
+    let https_port = get_env_port("DOCXY_HTTPS_PORT", 443);
+    
+    // 输出配置信息
+    println!("服务器配置:");
+    println!("HTTP 端口: {}", http_port);
+    
+    if https_enabled {
+        println!("HTTPS 端口: {}", https_port);
+    } else {
+        println!("HTTPS 服务: 已禁用");
+    }
+    
+    if behind_proxy {
+        println!("代理模式: 已启用");
+    }
+    
+    // 创建应用配置
+    let app = || {
         App::new()
             .route("/v2/", web::get().to(proxy_challenge))
             .route("/auth/token", web::get().to(get_token))
@@ -267,27 +301,77 @@ async fn main() -> std::io::Result<()> {
     };
     
     // 创建HTTP重定向应用配置
-    let http_app = || {
+    let http_redirect_app = || {
         App::new()
             .default_service(web::route().to(redirect_to_https))
     };
     
-    // 加载TLS配置
-    let rustls_config = load_rustls_config().expect("无法加载TLS配置");
+    // 创建服务器实例
+    let mut servers = Vec::new();
     
-    // 同时启动HTTP和HTTPS服务器
-    let http_server = HttpServer::new(http_app)
-        .bind(("0.0.0.0", 80))?
-        .run();
+    // 启动HTTP服务器（如果启用）
+    if http_enabled {
+        let http_server = if !behind_proxy && https_enabled {
+            // 如果启用了HTTPS且不在代理后面，HTTP只做重定向
+            HttpServer::new(http_redirect_app)
+                .bind(("0.0.0.0", http_port))?
+                .run()
+        } else {
+            // 否则HTTP提供完整功能
+            HttpServer::new(app)
+                .bind(("0.0.0.0", http_port))?
+                .run()
+        };
         
-    let https_server = HttpServer::new(https_app)
-        .bind_rustls(("0.0.0.0", 443), rustls_config)?
-        .run();
+        servers.push(http_server);
+    }
     
-    // 等待两个服务器都完成
-    futures::future::try_join(http_server, https_server).await?;
+    // 启动HTTPS服务器（如果启用）
+    if https_enabled {
+        // 加载TLS配置
+        match load_rustls_config() {
+            Ok(rustls_config) => {
+                let https_server = HttpServer::new(app)
+                    .bind_rustls(("0.0.0.0", https_port), rustls_config)?
+                    .run();
+                
+                servers.push(https_server);
+            },
+            Err(e) => {
+                eprintln!("无法加载TLS配置: {}", e);
+                if !http_enabled {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::Other, 
+                        "HTTPS配置加载失败且HTTP服务已禁用，无法启动服务器"
+                    ));
+                }
+            }
+        }
+    }
+    
+    // 确保至少有一个服务器在运行
+    if servers.is_empty() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::Other, 
+            "HTTP和HTTPS服务均已禁用，无法启动服务器"
+        ));
+    }
+    
+    // 等待所有服务器完成
+    futures::future::join_all(servers).await;
     
     Ok(())
+}
+
+// 添加辅助函数获取端口配置
+fn get_env_port(name: &str, default: u16) -> u16 {
+    match env::var(name) {
+        Ok(val) => match val.parse::<u16>() {
+            Ok(port) => port,
+            Err(_) => default,
+        },
+        Err(_) => default,
+    }
 }
 
 // 修改证书加载函数，使用环境变量配置证书路径
