@@ -185,8 +185,8 @@ bash <(curl -Ls https://raw.githubusercontent.com/harrisonwang/docxy/main/instal
 3. Sertifikaları yapılandırın (test.com alan adı örneği)
 
    ```bash
-   export CERT_PATH=/root/.acme.sh/test.com_ecc/fullchain.cer
-   export KEY_PATH=/root/.acme.sh/test.com_ecc/test.com.key
+   export DOCXY_CERT_PATH=/root/.acme.sh/test.com_ecc/fullchain.cer
+   export DOCXY_KEY_PATH=/root/.acme.sh/test.com_ecc/test.com.key
    ```
 
 > [!TIP]

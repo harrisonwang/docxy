@@ -185,8 +185,8 @@ bash <(curl -Ls https://raw.githubusercontent.com/harrisonwang/docxy/main/instal
 3. 配置证书（以 test.com 域名为例）
 
    ```bash
-   export CERT_PATH=/root/.acme.sh/test.com_ecc/fullchain.cer
-   export KEY_PATH=/root/.acme.sh/test.com_ecc/test.com.key
+   export DOCXY_CERT_PATH=/root/.acme.sh/test.com_ecc/fullchain.cer
+   export DOCXY_KEY_PATH=/root/.acme.sh/test.com_ecc/test.com.key
    ```
 
 > [!TIP]

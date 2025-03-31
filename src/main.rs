@@ -7,6 +7,7 @@ use std::io::BufReader;
 use futures::stream::StreamExt;
 use std::time::Duration;
 use lazy_static::lazy_static;
+use std::env;
 
 // 将 Docker Registry URL 定义为常量
 const DOCKER_REGISTRY_URL: &str = "https://registry-1.docker.io";
@@ -292,10 +293,10 @@ async fn main() -> std::io::Result<()> {
 // 修改证书加载函数，使用环境变量配置证书路径
 fn load_rustls_config() -> Result<ServerConfig, Box<dyn std::error::Error>> {
     // 从环境变量获取证书路径，如果未设置则使用默认值
-    let cert_path = std::env::var("CERT_PATH")
+    let cert_path = env::var("DOCXY_CERT_PATH")
         .unwrap_or_else(|_| "/root/.acme.sh/example.com_ecc/fullchain.cer".to_string());
     
-    let key_path = std::env::var("KEY_PATH")
+    let key_path = env::var("DOCXY_KEY_PATH")
         .unwrap_or_else(|_| "/root/.acme.sh/example.com_ecc/example.com.key".to_string());
     
     println!("正在加载证书: {}", cert_path);

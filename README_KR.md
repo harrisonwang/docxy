@@ -185,8 +185,8 @@ bash <(curl -Ls https://raw.githubusercontent.com/harrisonwang/docxy/main/instal
 3. 인증서 구성(test.com 도메인 예시)
 
    ```bash
-   export CERT_PATH=/root/.acme.sh/test.com_ecc/fullchain.cer
-   export KEY_PATH=/root/.acme.sh/test.com_ecc/test.com.key
+   export DOCXY_CERT_PATH=/root/.acme.sh/test.com_ecc/fullchain.cer
+   export DOCXY_KEY_PATH=/root/.acme.sh/test.com_ecc/test.com.key
    ```
 
 > [!TIP]

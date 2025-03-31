@@ -8,8 +8,8 @@ NC='\033[0m' # 无颜色
 
 # 初始化变量
 USE_EXISTING_CERT=false
-CERT_PATH=""
-KEY_PATH=""
+DOCXY_CERT_PATH=""
+DOCXY_KEY_PATH=""
 
 # 检查是否以 root 权限运行
 if [ "$EUID" -ne 0 ]; then
@@ -72,25 +72,25 @@ ask_certificate_option() {
 # 获取已有证书路径
 get_certificate_paths() {
   echo -e "${YELLOW}请输入证书完整路径 (fullchain.cer 或 .pem):${NC}"
-  read -r CERT_PATH
+  read -r DOCXY_CERT_PATH
   
   echo -e "${YELLOW}请输入私钥完整路径 (.key):${NC}"
-  read -r KEY_PATH
+  read -r DOCXY_KEY_PATH
   
   # 验证文件是否存在
-  if [ ! -f "$CERT_PATH" ]; then
-    echo -e "${RED}证书文件不存在: $CERT_PATH${NC}"
+  if [ ! -f "$DOCXY_CERT_PATH" ]; then
+    echo -e "${RED}证书文件不存在: $DOCXY_CERT_PATH${NC}"
     exit 1
   fi
   
-  if [ ! -f "$KEY_PATH" ]; then
-    echo -e "${RED}私钥文件不存在: $KEY_PATH${NC}"
+  if [ ! -f "$DOCXY_KEY_PATH" ]; then
+    echo -e "${RED}私钥文件不存在: $DOCXY_KEY_PATH${NC}"
     exit 1
   fi
   
   echo -e "${GREEN}将使用以下证书文件:${NC}"
-  echo -e "证书: ${YELLOW}$CERT_PATH${NC}"
-  echo -e "私钥: ${YELLOW}$KEY_PATH${NC}"
+  echo -e "证书: ${YELLOW}$DOCXY_CERT_PATH${NC}"
+  echo -e "私钥: ${YELLOW}$DOCXY_KEY_PATH${NC}"
 }
 
 # 检查端口可用性
@@ -154,12 +154,12 @@ get_certificate() {
   fi
   
   # 设置证书路径变量
-  CERT_PATH=~/.acme.sh/"$DOMAIN"_ecc/fullchain.cer
-  KEY_PATH=~/.acme.sh/"$DOMAIN"_ecc/"$DOMAIN".key
+  DOCXY_CERT_PATH=~/.acme.sh/"$DOMAIN"_ecc/fullchain.cer
+  DOCXY_KEY_PATH=~/.acme.sh/"$DOMAIN"_ecc/"$DOMAIN".key
   
   echo -e "${GREEN}证书文件已生成:${NC}"
-  echo -e "证书: ${YELLOW}$CERT_PATH${NC}"
-  echo -e "私钥: ${YELLOW}$KEY_PATH${NC}"
+  echo -e "证书: ${YELLOW}$DOCXY_CERT_PATH${NC}"
+  echo -e "私钥: ${YELLOW}$DOCXY_KEY_PATH${NC}"
 }
 
 # 下载 docxy
@@ -214,8 +214,8 @@ After=network.target
 [Service]
 Type=simple
 User=root
-Environment="CERT_PATH=$CERT_PATH"
-Environment="KEY_PATH=$KEY_PATH"
+Environment="DOCXY_CERT_PATH=$DOCXY_CERT_PATH"
+Environment="DOCXY_KEY_PATH=$DOCXY_KEY_PATH"
 ExecStart=/usr/local/bin/docxy
 Restart=on-failure
 RestartSec=5s
