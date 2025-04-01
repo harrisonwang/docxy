@@ -1,19 +1,14 @@
 # Docxy
 
-[![Rust](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org)
-[![Docker](https://img.shields.io/badge/docker-28%2B-blue.svg)](https://www.docker.com)
-[![GitHub release](https://img.shields.io/github/v/release/harrisonwang/docxy)](https://github.com/harrisonwang/docxy/releases)
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-
-<div align="center">
-  <a href="./README.md"><img alt="README in English" src="https://img.shields.io/badge/English-d9d9d9"></a>
-  <a href="./README_CN.md"><img alt="简体中文版自述文件" src="https://img.shields.io/badge/简体中文-d9d9d9"></a>
-  <a href="./README_RU.md"><img alt="README на русском" src="https://img.shields.io/badge/Русский-d9d9d9"></a>
-  <a href="./README_ES.md"><img alt="README en Español" src="https://img.shields.io/badge/Español-d9d9d9"></a>
-  <a href="./README_KR.md"><img alt="README in Korean" src="https://img.shields.io/badge/한국어-d9d9d9"></a>
-  <a href="./README_AR.md"><img alt="README بالعربية" src="https://img.shields.io/badge/العربية-d9d9d9"></a>
-  <a href="./README_TR.md"><img alt="Türkçe README" src="https://img.shields.io/badge/Türkçe-d9d9d9"></a>
-</div>
+[![English](https://img.shields.io/badge/English-Click-orange)](README.md)
+[![简体中文](https://img.shields.io/badge/简体中文-点击查看-blue)](README_CN.md)
+[![Русский](https://img.shields.io/badge/Русский-Нажмите-orange)](README_RU.md)
+[![Español](https://img.shields.io/badge/Español-Clic-blue)](README_ES.md)
+[![한국어](https://img.shields.io/badge/한국어-클릭-orange)](README_KR.md)
+[![العربية](https://img.shields.io/badge/العربية-انقر-blue)](README_AR.md)
+[![Türkçe](https://img.shields.io/badge/Türkçe-Tıkla-orange)](README_TR.md)
+[![Rust](https://img.shields.io/badge/rust-1.75%2B-blue.svg)](https://www.rust-lang.org)
+[![Docker](https://img.shields.io/badge/docker-28%2B-orange.svg)](https://www.docker.com)
 
 Belirli bölgelerde Docker Hub erişim kısıtlaması sorununu çözen hafif Docker görüntü proxy hizmeti.
 
