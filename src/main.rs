@@ -8,6 +8,7 @@ use futures::stream::StreamExt;
 use std::time::Duration;
 use lazy_static::lazy_static;
 use std::env;
+use log::{info, error, debug};
 
 // 将 Docker Registry URL 定义为常量
 const DOCKER_REGISTRY_URL: &str = "https://registry-1.docker.io";
@@ -30,12 +31,13 @@ async fn handle_request(
 
     // 使用常量构建目标URL
     let path = format!("/v2/{}/{}/{}", image_name, path_type, reference);
-
+    
     // 构建请求，根据原始请求的方法选择 HEAD 或 GET
+    let target_url = format!("{}{}", DOCKER_REGISTRY_URL, path);
     let mut request_builder = if req.method() == &actix_web::http::Method::HEAD {
-        HTTP_CLIENT.head(format!("{}{}", DOCKER_REGISTRY_URL, path))
+        HTTP_CLIENT.head(&target_url)
     } else {
-        HTTP_CLIENT.get(format!("{}{}", DOCKER_REGISTRY_URL, path))
+        HTTP_CLIENT.get(&target_url)
     };
 
     // 添加认证头
@@ -53,10 +55,19 @@ async fn handle_request(
     }
 
     // 发送请求到 Docker Registry
+    let method = req.method().as_str();
     let response = match request_builder.send().await {
-        Ok(resp) => resp,
+        Ok(resp) => {
+            info!("{} {} {:?} {} {}", 
+                method, 
+                target_url, 
+                req.version(),
+                resp.status().as_u16(), 
+                resp.status().canonical_reason().unwrap_or("Unknown"));
+            resp
+        },
         Err(e) => {
-            eprintln!("请求上游失败: {}", e);
+            error!("{} {} {:?} 失败: {}", method, target_url, req.version(), e);
             return Ok(HttpResponse::InternalServerError()
                 .body(format!("无法连接到 Docker Registry: {}", e)))
         }
@@ -73,6 +84,14 @@ async fn handle_request(
         }
     }
 
+    // 记录响应日志
+    info!("{} {} {:?} {} {}", 
+        req.method(), 
+        req.uri(), 
+        req.version(),
+        status.as_u16(), 
+        status.canonical_reason().unwrap_or("Unknown"));
+
     // 根据请求方法处理响应
     if req.method() == &actix_web::http::Method::HEAD {
         // HEAD 请求，不需要返回响应体
@@ -83,7 +102,7 @@ async fn handle_request(
             .bytes_stream()
             .map(|result| {
                 result.map_err(|err| {
-                    eprintln!("流读取错误: {}", err);
+                    error!("流读取错误: {}", err);
                     actix_web::error::ErrorInternalServerError(err)
                 })
             });
@@ -99,6 +118,8 @@ async fn get_token(req: HttpRequest) -> Result<HttpResponse> {
 
     // scope 参数
     let scope = query_params.get("scope").unwrap();
+    
+    debug!("Token 请求 scope: {}", scope);
 
     // 构建请求 Docker Hub 认证服务的 URL
     let mut auth_url = reqwest::Url::parse("https://auth.docker.io/token").unwrap();
@@ -108,13 +129,20 @@ async fn get_token(req: HttpRequest) -> Result<HttpResponse> {
         let mut query_pairs = auth_url.query_pairs_mut();
         query_pairs.append_pair("service", "registry.docker.io");
         query_pairs.append_pair("scope", scope);
-        // 如果有其他参数也可以添加，例如 client_id 等
     }
 
     // 发送请求到 Docker Hub 认证服务
-    let response = match HTTP_CLIENT.get(auth_url).send().await {
-        Ok(resp) => resp,
-        Err(_) => {
+    let response = match HTTP_CLIENT.get(auth_url.clone()).send().await {
+        Ok(resp) => {
+            info!("GET {} {:?} {} {}", 
+                auth_url, 
+                req.version(), 
+                resp.status().as_u16(), 
+                resp.status().canonical_reason().unwrap_or("Unknown"));
+            resp
+        },
+        Err(e) => {
+            error!("GET {} {:?} 失败: {}", auth_url, req.version(), e);
             return Ok(HttpResponse::InternalServerError()
                 .body("无法连接到 Docker Hub 认证服务"))
         }
@@ -133,8 +161,19 @@ async fn get_token(req: HttpRequest) -> Result<HttpResponse> {
 
     // 获取响应体并返回
     match response.bytes().await {
-        Ok(bytes) => Ok(builder.body(bytes)),
-        Err(_) => Ok(HttpResponse::InternalServerError().body("无法读取认证服务响应"))
+        Ok(bytes) => {
+            info!("{} {} {:?} {} {}", 
+                req.method(), 
+                req.uri(), 
+                req.version(),
+                status.as_u16(), 
+                status.canonical_reason().unwrap_or("Unknown"));
+            Ok(builder.body(bytes))
+        },
+        Err(e) => {
+            error!("读取认证服务响应失败: {}", e);
+            Ok(HttpResponse::InternalServerError().body("无法读取认证服务响应"))
+        }
     }
 }
 
@@ -144,34 +183,58 @@ async fn proxy_challenge(req: HttpRequest) -> Result<HttpResponse> {
         host => format!("{}", host)
     };
 
-    let response = match HTTP_CLIENT.get(format!("{}/v2/", DOCKER_REGISTRY_URL)).send().await {
-        Ok(resp) => resp,
-        Err(_) => {
+    let request_url = format!("{}/v2/", DOCKER_REGISTRY_URL);
+    let response = match HTTP_CLIENT.get(&request_url).send().await {
+        Ok(resp) => {
+            info!("GET {} {:?} {} {}", 
+                request_url,
+                req.version(), 
+                resp.status().as_u16(), 
+                resp.status().canonical_reason().unwrap_or("Unknown"));
+            resp
+        },
+        Err(e) => {
+            error!("GET {} {:?} 失败: {}", request_url, req.version(), e);
             return Ok(HttpResponse::InternalServerError()
                       .body("无法连接到上游 Docker Registry"))
         }
-
     };
 
     let status = response.status().as_u16();
-
     let mut builder = HttpResponse::build(actix_web::http::StatusCode::from_u16(status).unwrap());
 
+    let auth_header = format!("Bearer realm=\"https://{}/auth/token\",service=\"docker-registry-proxy\"", host);
+    debug!("设置认证头: {}", auth_header);
+    
     builder.append_header((
         "WWW-Authenticate",
-        format!("Bearer realm=\"https://{}/auth/token\",service=\"docker-registry-proxy\"", host)
+        auth_header
     ));
-
 
     let body = match response.text().await {
         Ok(text) => text,
-        Err(_) => String::from("无法读取上游响应内容")
+        Err(e) => {
+            error!("读取上游响应内容失败: {}", e);
+            String::from("无法读取上游响应内容")
+        }
     };
 
+    info!("{} {} {:?} {} {}", 
+        req.method(), 
+        req.uri(), 
+        req.version(),
+        status, 
+        actix_web::http::StatusCode::from_u16(status).unwrap().canonical_reason().unwrap_or("Unknown"));
+    
     Ok(builder.body(body))
 }
 
-async fn health_check() -> impl Responder {
+async fn health_check(req: HttpRequest) -> impl Responder {
+    info!("{} {} {:?} 200 OK", 
+        req.method(), 
+        req.uri(), 
+        req.version());
+        
     HttpResponse::Ok()
         .content_type("text/plain; charset=utf-8")
         .body("服务正常运行\n")
@@ -185,6 +248,13 @@ async fn redirect_to_https(req: HttpRequest) -> HttpResponse {
     // 构建重定向URL (HTTP -> HTTPS)
     let redirect_url = format!("https://{}{}", host, uri);
     
+    info!("接收请求: \"{} {} HTTP/{:?}\" 301 Moved Permanently", 
+        req.method(), 
+        req.uri(), 
+        req.version());
+    
+    info!("重定向到: {}", redirect_url);
+    
     HttpResponse::MovedPermanently()
         .append_header(("Location", redirect_url))
         .finish()
@@ -195,6 +265,33 @@ async fn main() -> std::io::Result<()> {
     // 使用env_logger的Builder直接设置日志级别
     env_logger::Builder::from_env(env_logger::Env::default()
         .default_filter_or("actix_web=info"))
+        .format(|buf, record| {
+            use std::io::Write;
+            use chrono::Local;
+            
+            let level = record.level();
+            let mut style_binding = buf.style(); // 先创建绑定
+            let level_style = style_binding  // 使用绑定
+                .set_bold(true)
+                .set_color(match level {
+                    log::Level::Error => env_logger::fmt::Color::Red,
+                    log::Level::Warn => env_logger::fmt::Color::Yellow,
+                    log::Level::Info => env_logger::fmt::Color::Green,
+                    log::Level::Debug => env_logger::fmt::Color::Blue,
+                    log::Level::Trace => env_logger::fmt::Color::Cyan,
+                });
+                
+            let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
+            
+            writeln!(
+                buf,
+                "[{} {} {}] {}",
+                timestamp,
+                level_style.value(format!("{:5}", level)),
+                record.target(),
+                record.args()
+            )
+        })
         .init();
     
     // 检查是否在代理模式下运行
@@ -220,17 +317,17 @@ async fn main() -> std::io::Result<()> {
     let https_port = get_env_port("DOCXY_HTTPS_PORT", 443);
     
     // 输出配置信息
-    println!("服务器配置:");
-    println!("HTTP 端口: {}", http_port);
+    info!("服务器配置:");
+    info!("HTTP 端口: {}", http_port);
     
     if https_enabled {
-        println!("HTTPS 端口: {}", https_port);
+        info!("HTTPS 端口: {}", https_port);
     } else {
-        println!("HTTPS 服务: 已禁用");
+        info!("HTTPS 服务: 已禁用");
     }
     
     if behind_proxy {
-        println!("代理模式: 已启用");
+        info!("代理模式: 已启用");
     }
     
     // 创建应用配置
@@ -283,7 +380,7 @@ async fn main() -> std::io::Result<()> {
                 servers.push(https_server);
             },
             Err(e) => {
-                eprintln!("无法加载TLS配置: {}", e);
+                error!("无法加载TLS配置: {}", e);
                 if !http_enabled {
                     return Err(std::io::Error::new(
                         std::io::ErrorKind::Other, 
@@ -328,8 +425,8 @@ fn load_rustls_config() -> Result<ServerConfig, Box<dyn std::error::Error>> {
     let key_path = env::var("DOCXY_KEY_PATH")
         .unwrap_or_else(|_| "/root/.acme.sh/example.com_ecc/example.com.key".to_string());
     
-    println!("正在加载证书: {}", cert_path);
-    println!("正在加载私钥: {}", key_path);
+    info!("正在加载证书: {}", cert_path);
+    info!("正在加载私钥: {}", key_path);
     
     // 读取证书和密钥文件
     let cert_file = &mut BufReader::new(File::open(&cert_path)
@@ -370,6 +467,6 @@ fn load_rustls_config() -> Result<ServerConfig, Box<dyn std::error::Error>> {
         .with_no_client_auth()
         .with_single_cert(cert_chain, PrivateKey(keys[0].clone()))?;
     
-    println!("成功加载证书和私钥");
+    info!("成功加载证书和私钥");
     Ok(config)
 }

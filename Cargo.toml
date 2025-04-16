@@ -1,6 +1,6 @@
 [package]
 name = "docxy"
-version = "0.3.1"
+version = "0.3.2"
 edition = "2024"
 
 [dependencies]
@@ -13,3 +13,5 @@ actix-web = { version = "4", features = ["rustls"] }
 rustls = "0.20"
 rustls-pemfile = "1.0"
 lazy_static = "1.4.0"
+log = "0.4"
+chrono = "0.4"
