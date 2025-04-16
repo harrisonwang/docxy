@@ -97,11 +97,8 @@ async fn get_token(req: HttpRequest) -> Result<HttpResponse> {
     // 获取请求中的查询参数
     let query_params = web::Query::<HashMap<String, String>>::from_query(req.query_string()).unwrap();
 
-    // 处理 scope 参数
-    let scope = match query_params.get("scope") {
-        Some(s) => process_scope(s),
-        None => "".to_string()
-    };
+    // scope 参数
+    let scope = query_params.get("scope").unwrap();
 
     // 构建请求 Docker Hub 认证服务的 URL
     let mut auth_url = reqwest::Url::parse("https://auth.docker.io/token").unwrap();
@@ -110,7 +107,7 @@ async fn get_token(req: HttpRequest) -> Result<HttpResponse> {
     {
         let mut query_pairs = auth_url.query_pairs_mut();
         query_pairs.append_pair("service", "registry.docker.io");
-        query_pairs.append_pair("scope", &scope);
+        query_pairs.append_pair("scope", scope);
         // 如果有其他参数也可以添加，例如 client_id 等
     }
 
@@ -139,19 +136,6 @@ async fn get_token(req: HttpRequest) -> Result<HttpResponse> {
         Ok(bytes) => Ok(builder.body(bytes)),
         Err(_) => Ok(HttpResponse::InternalServerError().body("无法读取认证服务响应"))
     }
-}
-
-// 处理 scope 参数的辅助函数
-fn process_scope(scope: &str) -> String {
-    let parts: Vec<&str> = scope.split(':').collect();
-
-    if parts.len() == 3 && !parts[1].contains('/') {
-        // 如果是以 repository:name:action 格式，并且 name 不包含 /，
-        // 则添加 library/ 前缀
-        return format!("{}:library/{}:{}", parts[0], parts[1], parts[2]);
-    }
-
-    scope.to_string()
 }
 
 async fn proxy_challenge(req: HttpRequest) -> Result<HttpResponse> {
