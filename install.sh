@@ -255,13 +255,15 @@ EOF
 
   # 根据模式添加最小化环境变量
   if [ "$BEHIND_PROXY" = true ]; then
-    # 代理模式：只需设置代理标志和端口
+    # 代理模式：设置代理标志、端口和日志级别
     echo "Environment=\"DOCXY_BEHIND_PROXY=true\"" >> /etc/systemd/system/docxy.service
     echo "Environment=\"DOCXY_HTTP_PORT=$HTTP_PORT\"" >> /etc/systemd/system/docxy.service
+    echo "Environment=\"RUST_LOG=info\"" >> /etc/systemd/system/docxy.service
   else
-    # 独立模式：只需设置证书路径
+    # 独立模式：设置证书路径和日志级别
     echo "Environment=\"DOCXY_CERT_PATH=$DOCXY_CERT_PATH\"" >> /etc/systemd/system/docxy.service
     echo "Environment=\"DOCXY_KEY_PATH=$DOCXY_KEY_PATH\"" >> /etc/systemd/system/docxy.service
+    echo "Environment=\"RUST_LOG=info\"" >> /etc/systemd/system/docxy.service
   fi
   
   cat >> /etc/systemd/system/docxy.service << EOF
