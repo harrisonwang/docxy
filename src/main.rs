@@ -21,41 +21,6 @@ lazy_static! {
         .unwrap();
 }
 
-async fn handle_no_namespace_request(
-    req: HttpRequest,
-    path: web::Path<(String, String, String)>,
-) -> Result<HttpResponse> {
-    let (image_name, path_type, reference) = path.into_inner();
-
-    // 获取主机信息和协议
-    let connection_info = req.connection_info();
-    let host = connection_info.host().to_string();
-    let scheme = connection_info.scheme();
-
-    // 构建重定向URL (添加library命名空间)
-    let redirect_url = format!("{}://{}/v2/library/{}/{}/{}",
-                              scheme, host, image_name, path_type, reference);
-
-    // 复制请求头到重定向
-    let mut builder = HttpResponse::MovedPermanently();
-    builder.append_header(("Location", redirect_url));
-
-    // 复制Authorization和Accept头（如果存在）
-    if let Some(auth) = req.headers().get("Authorization") {
-        if let Ok(auth_str) = auth.to_str() {
-            builder.append_header(("Authorization", auth_str));
-        }
-    }
-
-    if let Some(accept) = req.headers().get("Accept") {
-        if let Ok(accept_str) = accept.to_str() {
-            builder.append_header(("Accept", accept_str));
-        }
-    }
-
-    Ok(builder.finish())
-}
-
 async fn handle_request(
     req: HttpRequest,
     path: web::Path<(String, String, String)>,
@@ -64,7 +29,7 @@ async fn handle_request(
     let (image_name, path_type, reference) = path.into_inner();
 
     // 使用常量构建目标URL
-    let path = format!("/v2/library/{}/{}/{}", image_name, path_type, reference);
+    let path = format!("/v2/{}/{}/{}", image_name, path_type, reference);
 
     // 构建请求，根据原始请求的方法选择 HEAD 或 GET
     let mut request_builder = if req.method() == &actix_web::http::Method::HEAD {
@@ -290,14 +255,10 @@ async fn main() -> std::io::Result<()> {
             .route("/v2/", web::get().to(proxy_challenge))
             .route("/auth/token", web::get().to(get_token))
             .route("/health", web::get().to(health_check))
-            .route("/v2/library/{image_name}/{path_type}/{reference:.+}",
+            .route("/v2/{image_name:.*}/{path_type}/{reference:.+}",
                    web::route()
                    .guard(guard::Any(guard::Get()).or(guard::Head()))
                    .to(handle_request))
-            .route("/v2/{image_name}/{path_type}/{reference:.+}",
-                   web::route()
-                   .guard(guard::Any(guard::Get()).or(guard::Head()))
-                   .to(handle_no_namespace_request))
     };
     
     // 创建HTTP重定向应用配置
