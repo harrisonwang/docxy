@@ -71,7 +71,7 @@ graph TD
         RouterHandler -->|/v2/| ChallengeHandler[质询处理器<br>proxy_challenge]
         RouterHandler -->|/auth/token| TokenHandler[令牌处理器<br>get_token]
         RouterHandler -->|/v2/namespace/image/path_type| RequestHandler[请求处理器<br>handle_request]
-        RouterHandler -->|/health| HealthCheck[健康检查]
+        RouterHandler -->|/health| HealthCheck[健康检查<br>health_check]
         
         ChallengeHandler --> HttpClient
         TokenHandler --> HttpClient
@@ -89,6 +89,7 @@ graph TD
 
 ```mermaid
 sequenceDiagram
+    autonumber
     actor Client as Docker 客户端
     participant Proxy as Docxy Proxy
     participant Registry as Docker Registry
@@ -98,26 +99,46 @@ sequenceDiagram
     Client->>Proxy: GET /v2/
     Proxy->>+Registry: GET /v2/
     Registry-->>-Proxy: 401 Unauthorized (WWW-Authenticate)
-    Proxy->>Proxy: 修改 WWW-Authenticate 头，指向本地 /auth/token
+    Proxy->>Proxy: 修改 WWW-Authenticate 头，realm 指向本地 /auth/token
     Proxy-->>Client: 401 返回修改后的认证头
     
     %% 令牌获取
-    Client->>Proxy: GET /auth/token?scope=repository:redis:pull
-    Proxy->>+Auth: GET /token?service=registry.docker.io&scope=repository:library/redis:pull
+    Client->>Proxy: GET /auth/token?scope=repository:library/cirros:pull
+    Proxy->>+Auth: GET /token?service=registry.docker.io&scope=repository:library/cirros:pull
     Auth-->>-Proxy: 200 返回令牌
     Proxy-->>Client: 200 返回原始令牌响应
     
-    %% 镜像元数据请求处理
-    Client->>Proxy: GET /v2/library/redis/manifests/latest
+    %% 镜像摘要请求处理
+    Client->>Proxy: HEAD /v2/library/cirros/manifests/latest
     Proxy->>+Registry: 转发请求（携带认证头和Accept头）
-    Registry-->>-Proxy: 返回镜像清单
-    Proxy-->>Client: 返回镜像清单（保留原始响应头和状态码）
+    Registry-->>-Proxy: 返回镜像唯一标识
+    Proxy-->>Client: 返回镜像唯一标识（保留原始响应头和状态码）
+
+    %% 镜像元数据请求处理
+    Client->>Proxy: GET /v2/library/cirros/manifests/{docker-content-digest}
+    Proxy->>+Registry: 转发请求（携带认证头和Accept头）
+    Registry-->>-Proxy: 返回镜像元数据
+    Proxy-->>Client: 返回镜像元数据（保留原始响应头和状态码）
+
+    %% 镜像配置和镜像层信息请求处理
+    Client->>Proxy: GET /v2/library/cirros/manifests/{digest}
+    Proxy->>+Registry: 转发请求（携带认证头和Accept头）
+    Registry-->>-Proxy: 返回指定硬件架构的镜像配置和镜像层信息
+    Proxy-->>Client: 返回指定硬件架构的镜像配置和镜像层信息（保留原始响应头和状态码）
+
+    %% 镜像配置详细信息请求处理
+    Client->>Proxy: GET /v2/library/cirros/blobs/{digest}
+    Proxy->>+Registry: 转发请求（携带认证头和Accept头）
+    Registry-->>-Proxy: 返回镜像配置详细信息
+    Proxy-->>Client: 返回镜像配置详细信息（保留原始响应头和状态码）
     
-    %% 处理二进制数据
-    Client->>Proxy: GET /v2/library/redis/blobs/{digest}
-    Proxy->>+Registry: 转发 blob 请求
-    Registry-->>-Proxy: 返回 blob 数据
-    Proxy-->>Client: 流式返回 blob 数据
+    %% 各镜像层二进制数据请求处理（循环处理每一层）
+    loop 对每个镜像层
+        Client->>Proxy: GET /v2/library/cirros/blobs/{digest}
+        Proxy->>+Registry: 转发 blob 请求
+        Registry-->>-Proxy: 返回 blob 数据
+        Proxy-->>Client: 流式返回 blob 数据
+    end
 ```
 
 ### 证书处理流程
