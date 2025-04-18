@@ -8,7 +8,7 @@ use futures::stream::StreamExt;
 use std::time::Duration;
 use lazy_static::lazy_static;
 use std::env;
-use log::{info, error, debug};
+use log::{info, error, debug, warn};
 
 // 将 Docker Registry URL 定义为常量
 const DOCKER_REGISTRY_URL: &str = "https://registry-1.docker.io";
@@ -20,6 +20,16 @@ lazy_static! {
         .timeout(Duration::from_secs(30))
         .build()
         .unwrap();
+}
+
+// 处理非法请求的函数
+async fn handle_invalid_request(req: HttpRequest) -> HttpResponse {
+    let path = req.uri().path();
+    warn!("拦截非法请求: {} {}", req.method(), path);
+    
+    HttpResponse::Forbidden()
+        .content_type("text/plain; charset=utf-8")
+        .body("非法访问路径")
 }
 
 async fn handle_request(
@@ -340,12 +350,20 @@ async fn main() -> std::io::Result<()> {
                    web::route()
                    .guard(guard::Any(guard::Get()).or(guard::Head()))
                    .to(handle_request))
+            .default_service(web::route().to(handle_invalid_request))  // 添加默认服务处理非法请求
     };
     
-    // 创建HTTP重定向应用配置
+    // 创建HTTP重定向应用配置，特殊情况下我们可能仍然希望重定向，而不是拒绝访问
     let http_redirect_app = || {
         App::new()
-            .default_service(web::route().to(redirect_to_https))
+            .service(
+                web::scope("/v2")
+                    .route("", web::get().to(redirect_to_https))
+                    .route("/{tail:.*}", web::route().to(redirect_to_https))
+            )
+            .route("/auth/token", web::get().to(redirect_to_https))
+            .route("/health", web::get().to(redirect_to_https))
+            .default_service(web::route().to(handle_invalid_request))  // 非法路径直接拒绝
     };
     
     // 创建服务器实例
