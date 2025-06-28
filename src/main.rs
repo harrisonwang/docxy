@@ -141,8 +141,19 @@ async fn get_token(req: HttpRequest) -> Result<HttpResponse> {
         query_pairs.append_pair("scope", scope);
     }
 
+    // 构造向上游的请求构建器
+    let mut request_builder = HTTP_CLIENT.get(auth_url.clone());
+
+    // 检查并代理 Authorization 头
+    if let Some(auth_header) = req.headers().get("Authorization") {
+        if let Ok(auth_str) = auth_header.to_str() {
+            debug!("代理 Authorization 头: {}", auth_str);
+            request_builder = request_builder.header("Authorization", auth_str);
+        }
+    }
+
     // 发送请求到 Docker Hub 认证服务
-    let response = match HTTP_CLIENT.get(auth_url.clone()).send().await {
+    let response = match request_builder.send().await {
         Ok(resp) => {
             info!("GET {} {:?} {} {}", 
                 auth_url, 
@@ -213,7 +224,10 @@ async fn proxy_challenge(req: HttpRequest) -> Result<HttpResponse> {
     let status = response.status().as_u16();
     let mut builder = HttpResponse::build(actix_web::http::StatusCode::from_u16(status).unwrap());
 
-    let auth_header = format!("Bearer realm=\"https://{}/auth/token\",service=\"docker-registry-proxy\"", host);
+    let auth_header = format!(
+        "Bearer realm=\"https://{}/auth/token\",service=\"registry.docker.io\"",
+        host
+    );
     debug!("设置认证头: {}", auth_header);
     
     builder.append_header((
