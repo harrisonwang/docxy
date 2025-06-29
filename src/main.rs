@@ -147,7 +147,7 @@ async fn get_token(req: HttpRequest) -> Result<HttpResponse> {
         }
     }
 
-    debug!("转发 token 请求至: {}", auth_url);
+    info!("转发 token 请求至: {}", auth_url);
 
     // 构造向上游的请求构建器
     let mut request_builder = HTTP_CLIENT.get(auth_url.clone());
@@ -155,7 +155,7 @@ async fn get_token(req: HttpRequest) -> Result<HttpResponse> {
     // 检查并代理 Authorization 头
     if let Some(auth_header) = req.headers().get("Authorization") {
         if let Ok(auth_str) = auth_header.to_str() {
-            debug!("代理 Authorization 头: {}", auth_str);
+            info!("代理 Authorization 头: {}", auth_str);
             request_builder = request_builder.header("Authorization", auth_str);
         }
     }
@@ -236,7 +236,7 @@ async fn proxy_challenge(req: HttpRequest) -> Result<HttpResponse> {
         "Bearer realm=\"https://{}/auth/token\",service=\"registry.docker.io\"",
         host
     );
-    debug!("设置认证头: {}", auth_header);
+    info!("设置认证头: {}", auth_header);
     
     builder.append_header((
         "WWW-Authenticate",
