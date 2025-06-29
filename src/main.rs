@@ -213,7 +213,19 @@ async fn proxy_challenge(req: HttpRequest) -> Result<HttpResponse> {
     };
 
     let request_url = format!("{}/v2/", DOCKER_REGISTRY_URL);
-    let response = match HTTP_CLIENT.get(&request_url).send().await {
+    
+    // 构建请求，检查是否有 Authorization 头
+    let mut request_builder = HTTP_CLIENT.get(&request_url);
+    
+    // 如果客户端提供了 Authorization 头，转发给上游
+    if let Some(auth) = req.headers().get("Authorization") {
+        if let Ok(auth_str) = auth.to_str() {
+            info!("代理 Authorization 头到 /v2/: {}", auth_str);
+            request_builder = request_builder.header("Authorization", auth_str);
+        }
+    }
+
+    let response = match request_builder.send().await {
         Ok(resp) => {
             info!("GET {} {:?} {} {}", 
                 request_url,
@@ -232,16 +244,19 @@ async fn proxy_challenge(req: HttpRequest) -> Result<HttpResponse> {
     let status = response.status().as_u16();
     let mut builder = HttpResponse::build(actix_web::http::StatusCode::from_u16(status).unwrap());
 
-    let auth_header = format!(
-        "Bearer realm=\"https://{}/auth/token\",service=\"registry.docker.io\"",
-        host
-    );
-    info!("设置认证头: {}", auth_header);
-    
-    builder.append_header((
-        "WWW-Authenticate",
-        auth_header
-    ));
+    // 只有在返回 401 时才设置 WWW-Authenticate 头
+    if status == 401 {
+        let auth_header = format!(
+            "Bearer realm=\"https://{}/auth/token\",service=\"registry.docker.io\"",
+            host
+        );
+        info!("设置认证头: {}", auth_header);
+        
+        builder.append_header((
+            "WWW-Authenticate",
+            auth_header
+        ));
+    }
 
     let body = match response.text().await {
         Ok(text) => text,
