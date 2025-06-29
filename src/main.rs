@@ -123,23 +123,31 @@ async fn handle_request(
 
 // 获取 Token 的处理函数
 async fn get_token(req: HttpRequest) -> Result<HttpResponse> {
-    // 获取请求中的查询参数
-    let query_params = web::Query::<HashMap<String, String>>::from_query(req.query_string()).unwrap();
+    // 1. 尝试解析查询参数，失败则返回 400
+    let query_params = match web::Query::<HashMap<String, String>>::from_query(req.query_string()) {
+        Ok(q) => q,
+        Err(_) => {
+            return Ok(HttpResponse::BadRequest().body("无效的查询参数"));
+        }
+    };
 
-    // scope 参数
-    let scope = query_params.get("scope").unwrap();
-    
-    debug!("Token 请求 scope: {}", scope);
-
-    // 构建请求 Docker Hub 认证服务的 URL
+    // 2. 构建 Docker Hub 认证服务 URL
     let mut auth_url = reqwest::Url::parse("https://auth.docker.io/token").unwrap();
-
-    // 添加查询参数
     {
         let mut query_pairs = auth_url.query_pairs_mut();
+        // service 必须是 registry.docker.io
         query_pairs.append_pair("service", "registry.docker.io");
-        query_pairs.append_pair("scope", scope);
+
+        // 3. 透传所有客户端提供的查询参数（包含 account、client_id、offline_token、scope 等）
+        //    避免重复 service
+        for (k, v) in query_params.iter() {
+            if k != "service" {
+                query_pairs.append_pair(k, v);
+            }
+        }
     }
+
+    info!("转发 token 请求至: {}", auth_url);
 
     // 构造向上游的请求构建器
     let mut request_builder = HTTP_CLIENT.get(auth_url.clone());
@@ -147,7 +155,7 @@ async fn get_token(req: HttpRequest) -> Result<HttpResponse> {
     // 检查并代理 Authorization 头
     if let Some(auth_header) = req.headers().get("Authorization") {
         if let Ok(auth_str) = auth_header.to_str() {
-            debug!("代理 Authorization 头: {}", auth_str);
+            info!("代理 Authorization 头: {}", auth_str);
             request_builder = request_builder.header("Authorization", auth_str);
         }
     }
@@ -205,7 +213,19 @@ async fn proxy_challenge(req: HttpRequest) -> Result<HttpResponse> {
     };
 
     let request_url = format!("{}/v2/", DOCKER_REGISTRY_URL);
-    let response = match HTTP_CLIENT.get(&request_url).send().await {
+    
+    // 构建请求，检查是否有 Authorization 头
+    let mut request_builder = HTTP_CLIENT.get(&request_url);
+    
+    // 如果客户端提供了 Authorization 头，转发给上游
+    if let Some(auth) = req.headers().get("Authorization") {
+        if let Ok(auth_str) = auth.to_str() {
+            info!("代理 Authorization 头到 /v2/: {}", auth_str);
+            request_builder = request_builder.header("Authorization", auth_str);
+        }
+    }
+
+    let response = match request_builder.send().await {
         Ok(resp) => {
             info!("GET {} {:?} {} {}", 
                 request_url,
@@ -224,16 +244,19 @@ async fn proxy_challenge(req: HttpRequest) -> Result<HttpResponse> {
     let status = response.status().as_u16();
     let mut builder = HttpResponse::build(actix_web::http::StatusCode::from_u16(status).unwrap());
 
-    let auth_header = format!(
-        "Bearer realm=\"https://{}/auth/token\",service=\"registry.docker.io\"",
-        host
-    );
-    debug!("设置认证头: {}", auth_header);
-    
-    builder.append_header((
-        "WWW-Authenticate",
-        auth_header
-    ));
+    // 只有在返回 401 时才设置 WWW-Authenticate 头
+    if status == 401 {
+        let auth_header = format!(
+            "Bearer realm=\"https://{}/auth/token\",service=\"registry.docker.io\"",
+            host
+        );
+        info!("设置认证头: {}", auth_header);
+        
+        builder.append_header((
+            "WWW-Authenticate",
+            auth_header
+        ));
+    }
 
     let body = match response.text().await {
         Ok(text) => text,
