@@ -123,23 +123,31 @@ async fn handle_request(
 
 // 获取 Token 的处理函数
 async fn get_token(req: HttpRequest) -> Result<HttpResponse> {
-    // 获取请求中的查询参数
-    let query_params = web::Query::<HashMap<String, String>>::from_query(req.query_string()).unwrap();
+    // 1. 尝试解析查询参数，失败则返回 400
+    let query_params = match web::Query::<HashMap<String, String>>::from_query(req.query_string()) {
+        Ok(q) => q,
+        Err(_) => {
+            return Ok(HttpResponse::BadRequest().body("无效的查询参数"));
+        }
+    };
 
-    // scope 参数
-    let scope = query_params.get("scope").unwrap();
-    
-    debug!("Token 请求 scope: {}", scope);
-
-    // 构建请求 Docker Hub 认证服务的 URL
+    // 2. 构建 Docker Hub 认证服务 URL
     let mut auth_url = reqwest::Url::parse("https://auth.docker.io/token").unwrap();
-
-    // 添加查询参数
     {
         let mut query_pairs = auth_url.query_pairs_mut();
+        // service 必须是 registry.docker.io
         query_pairs.append_pair("service", "registry.docker.io");
-        query_pairs.append_pair("scope", scope);
+
+        // 3. 透传所有客户端提供的查询参数（包含 account、client_id、offline_token、scope 等）
+        //    避免重复 service
+        for (k, v) in query_params.iter() {
+            if k != "service" {
+                query_pairs.append_pair(k, v);
+            }
+        }
     }
+
+    debug!("转发 token 请求至: {}", auth_url);
 
     // 构造向上游的请求构建器
     let mut request_builder = HTTP_CLIENT.get(auth_url.clone());
