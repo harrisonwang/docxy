@@ -3,15 +3,16 @@ use actix_web::{web, HttpRequest, HttpResponse, Result};
 use std::collections::HashMap;
 use log::{info, error};
 
+use crate::error::AppError;
 use crate::HTTP_CLIENT;
 
 // 获取 Token 的处理函数
-pub async fn get_token(req: HttpRequest) -> Result<HttpResponse> {
+pub async fn get_token(req: HttpRequest) -> Result<HttpResponse, AppError> {
     // 1. 尝试解析查询参数，失败则返回 400
     let query_params = match web::Query::<HashMap<String, String>>::from_query(req.query_string()) {
         Ok(q) => q,
         Err(_) => {
-            return Ok(HttpResponse::BadRequest().body("无效的查询参数"));
+            return Err(AppError::InvalidRequest("无效的查询参数".to_string()));
         }
     };
 
@@ -90,7 +91,7 @@ pub async fn get_token(req: HttpRequest) -> Result<HttpResponse> {
     }
 }
 
-pub async fn proxy_challenge(req: HttpRequest) -> Result<HttpResponse> {
+pub async fn proxy_challenge(req: HttpRequest) -> Result<HttpResponse, AppError> {
     let host = match req.connection_info().host() {
         host if host.contains(':') => host.to_string(),
         host => host.to_string()

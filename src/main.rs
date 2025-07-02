@@ -1,3 +1,4 @@
+use crate::error::AppError;
 use actix_web::{web, guard, App, HttpServer, Result};
 use rustls::{Certificate, PrivateKey, ServerConfig};
 use std::fs::File;
@@ -7,6 +8,7 @@ use lazy_static::lazy_static;
 use std::env;
 use log::{info, error};
 
+mod error;
 mod handlers;
 
 // 将 Docker Registry URL 定义为常量
@@ -24,7 +26,7 @@ lazy_static! {
 
 
 #[actix_web::main]
-async fn main() -> std::io::Result<()> {
+async fn main() -> Result<(), AppError> {
     // 使用env_logger的Builder直接设置日志级别
     env_logger::Builder::from_env(env_logger::Env::default()
         .default_filter_or("actix_web=info"))
@@ -153,8 +155,8 @@ async fn main() -> std::io::Result<()> {
             Err(e) => {
                 error!("无法加载TLS配置: {}", e);
                 if !http_enabled {
-                    return Err(std::io::Error::other(
-                        "HTTPS配置加载失败且HTTP服务已禁用，无法启动服务器"
+                    return Err(AppError::TlsConfig(
+                        "HTTPS配置加载失败且HTTP服务已禁用，无法启动服务器".to_string(),
                     ));
                 }
             }
@@ -163,8 +165,8 @@ async fn main() -> std::io::Result<()> {
     
     // 确保至少有一个服务器在运行
     if servers.is_empty() {
-        return Err(std::io::Error::other(
-            "HTTP和HTTPS服务均已禁用，无法启动服务器"
+        return Err(AppError::TlsConfig(
+            "HTTP和HTTPS服务均已禁用，无法启动服务器".to_string(),
         ));
     }
     
@@ -186,7 +188,7 @@ fn get_env_port(name: &str, default: u16) -> u16 {
 }
 
 // 修改证书加载函数，使用环境变量配置证书路径
-fn load_rustls_config() -> Result<ServerConfig, Box<dyn std::error::Error>> {
+fn load_rustls_config() -> Result<ServerConfig, AppError> {
     // 从环境变量获取证书路径，如果未设置则使用默认值
     let cert_path = env::var("DOCXY_CERT_PATH")
         .unwrap_or_else(|_| "/root/.acme.sh/example.com_ecc/fullchain.cer".to_string());
@@ -199,10 +201,10 @@ fn load_rustls_config() -> Result<ServerConfig, Box<dyn std::error::Error>> {
     
     // 读取证书和密钥文件
     let cert_file = &mut BufReader::new(File::open(&cert_path)
-        .map_err(|e| format!("无法打开证书文件 {cert_path}: {e}"))?);
+        .map_err(|e| AppError::TlsConfig(format!("无法打开证书文件 {cert_path}: {e}")))?);
     
     let key_file = &mut BufReader::new(File::open(&key_path)
-        .map_err(|e| format!("无法打开私钥文件 {key_path}: {e}"))?);
+        .map_err(|e| AppError::TlsConfig(format!("无法打开私钥文件 {key_path}: {e}")))?);
     
     // 解析证书
     let cert_chain = rustls_pemfile::certs(cert_file)?
@@ -227,7 +229,7 @@ fn load_rustls_config() -> Result<ServerConfig, Box<dyn std::error::Error>> {
     }
     
     if keys.is_empty() {
-        return Err("无法读取私钥，支持的格式：ECC、RSA 或 PKCS8".into());
+        return Err(AppError::TlsConfig("无法读取私钥，支持的格式：ECC、RSA 或 PKCS8".into()));
     }
     
     // 构建 TLS 配置

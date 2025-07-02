@@ -512,7 +512,7 @@ dependencies = [
 
 [[package]]
 name = "docxy"
-version = "0.5.5"
+version = "0.5.6"
 dependencies = [
  "actix-web",
  "chrono",
@@ -524,6 +524,7 @@ dependencies = [
  "rustls 0.20.9",
  "rustls-pemfile 1.0.4",
  "serde",
+ "thiserror",
  "tokio",
 ]
 
@@ -1907,6 +1908,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "06794f8f6c5c898b3275aebefa6b8a1cb24cd2c6c79397ab15774837a0bc5755"
 dependencies = [
  "winapi-util",
+]
+
+[[package]]
+name = "thiserror"
+version = "1.0.69"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b6aaf5339b578ea85b50e080feb250a3e8ae8cfcdff9a461c9ec2904bc923f52"
+dependencies = [
+ "thiserror-impl",
+]
+
+[[package]]
+name = "thiserror-impl"
+version = "1.0.69"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4fee6c4efc90059e10f81e6d42c60a18f76588c3d74cb83a0b242a2b6c7504c1"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]

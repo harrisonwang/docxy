@@ -2,12 +2,13 @@ use actix_web::{web, HttpRequest, HttpResponse, Result};
 use futures::stream::StreamExt;
 use log::{info, error};
 
+use crate::error::AppError;
 use crate::{DOCKER_REGISTRY_URL, HTTP_CLIENT};
 
 pub async fn handle_request(
     req: HttpRequest,
     path: web::Path<(String, String, String)>,
-) -> Result<HttpResponse> {
+) -> Result<HttpResponse, AppError> {
     // 获取路径参数
     let (image_name, path_type, reference) = path.into_inner();
 
