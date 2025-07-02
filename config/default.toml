@@ -1,0 +1,13 @@
+[server]
+http_port = 80
+https_port = 443
+http_enabled = true
+https_enabled = true
+behind_proxy = false
+
+[registry]
+upstream_registry = "https://registry-1.docker.io"
+
+[tls]
+cert_path = "/root/.acme.sh/example.com_ecc/fullchain.cer"
+key_path = "/root/.acme.sh/example.com_ecc/example.com.key"

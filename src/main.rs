@@ -5,14 +5,13 @@ use std::fs::File;
 use std::io::BufReader;
 use std::time::Duration;
 use lazy_static::lazy_static;
-use std::env;
 use log::{info, error};
 
+mod config;
 mod error;
 mod handlers;
 
-// 将 Docker Registry URL 定义为常量
-pub const DOCKER_REGISTRY_URL: &str = "https://registry-1.docker.io";
+
 
 lazy_static! {
     pub static ref HTTP_CLIENT: reqwest::Client = reqwest::Client::builder()
@@ -59,45 +58,31 @@ async fn main() -> Result<(), AppError> {
         })
         .init();
     
-    // 检查是否在代理模式下运行
-    let behind_proxy = env::var("DOCXY_BEHIND_PROXY")
-        .unwrap_or_else(|_| "false".to_string()) == "true";
-    
-    // 从环境变量获取端口配置
-    let http_enabled = env::var("DOCXY_HTTP_ENABLED")
-        .unwrap_or_else(|_| "true".to_string()) == "true";
-    
-    // 在代理模式下默认使用9000端口
-    let default_http_port = if behind_proxy { 9000 } else { 80 };
-    let http_port = get_env_port("DOCXY_HTTP_PORT", default_http_port);
-    
-    // 在代理模式下自动禁用HTTPS，否则使用环境变量
-    let https_enabled = if behind_proxy {
-        false
-    } else {
-        env::var("DOCXY_HTTPS_ENABLED")
-            .unwrap_or_else(|_| "true".to_string()) == "true"
-    };
-    
-    let https_port = get_env_port("DOCXY_HTTPS_PORT", 443);
-    
+    let settings = config::Settings::new().map_err(|e| AppError::TlsConfig(format!("无法加载配置: {}", e)))?;
+
     // 输出配置信息
     info!("服务器配置:");
-    info!("HTTP 端口: {}", http_port);
+    info!("HTTP 端口: {}", settings.server.http_port);
     
-    if https_enabled {
-        info!("HTTPS 端口: {}", https_port);
+    if settings.server.https_enabled {
+        info!("HTTPS 端口: {}", settings.server.https_port);
     } else {
         info!("HTTPS 服务: 已禁用");
     }
     
-    if behind_proxy {
+    if settings.server.behind_proxy {
         info!("代理模式: 已启用");
     }
     
+    
+
     // 创建应用配置
-    let app = || {
+    let http_app_data = web::Data::new(settings.registry.upstream_registry.clone());
+    
+
+    let http_app = move || {
         App::new()
+            .app_data(http_app_data.clone())
             .route("/v2/", web::get().to(handlers::proxy_challenge))
             .route("/auth/token", web::get().to(handlers::get_token))
             .route("/health", web::get().to(handlers::health_check))
@@ -109,7 +94,7 @@ async fn main() -> Result<(), AppError> {
     };
     
     // 创建HTTP重定向应用配置，特殊情况下我们可能仍然希望重定向，而不是拒绝访问
-    let http_redirect_app = || {
+    let http_redirect_app = move || {
         App::new()
             .service(
                 web::scope("/v2")
@@ -125,16 +110,16 @@ async fn main() -> Result<(), AppError> {
     let mut servers = Vec::new();
     
     // 启动HTTP服务器（如果启用）
-    if http_enabled {
-        let http_server = if !behind_proxy && https_enabled {
+    if settings.server.http_enabled {
+        let http_server = if !settings.server.behind_proxy && settings.server.https_enabled {
             // 如果启用了HTTPS且不在代理后面，HTTP只做重定向
             HttpServer::new(http_redirect_app)
-                .bind(("0.0.0.0", http_port))?
+                .bind(("0.0.0.0", settings.server.http_port))?
                 .run()
         } else {
             // 否则HTTP提供完整功能
-            HttpServer::new(app)
-                .bind(("0.0.0.0", http_port))?
+            HttpServer::new(http_app)
+                .bind(("0.0.0.0", settings.server.http_port))?
                 .run()
         };
         
@@ -142,19 +127,30 @@ async fn main() -> Result<(), AppError> {
     }
     
     // 启动HTTPS服务器（如果启用）
-    if https_enabled {
+    if settings.server.https_enabled {
         // 加载TLS配置
-        match load_rustls_config() {
+        match load_rustls_config(&settings) {
             Ok(rustls_config) => {
-                let https_server = HttpServer::new(app)
-                    .bind_rustls(("0.0.0.0", https_port), rustls_config)?
+                let https_server = HttpServer::new(move || {
+                    App::new()
+                        .app_data(web::Data::new(settings.registry.upstream_registry.clone()))
+                        .route("/v2/", web::get().to(handlers::proxy_challenge))
+                        .route("/auth/token", web::get().to(handlers::get_token))
+                        .route("/health", web::get().to(handlers::health_check))
+                        .route("/v2/{image_name:.*}/{path_type}/{reference:.+}",
+                               web::route()
+                               .guard(guard::Any(guard::Get()).or(guard::Head()))
+                               .to(handlers::handle_request))
+                        .default_service(web::route().to(handlers::handle_invalid_request))  // 添加默认服务处理非法请求
+                })
+                    .bind_rustls(("0.0.0.0", settings.server.https_port), rustls_config)?
                     .run();
                 
                 servers.push(https_server);
             },
             Err(e) => {
                 error!("无法加载TLS配置: {}", e);
-                if !http_enabled {
+                if !settings.server.http_enabled {
                     return Err(AppError::TlsConfig(
                         "HTTPS配置加载失败且HTTP服务已禁用，无法启动服务器".to_string(),
                     ));
@@ -176,25 +172,13 @@ async fn main() -> Result<(), AppError> {
     Ok(())
 }
 
-// 添加辅助函数获取端口配置
-fn get_env_port(name: &str, default: u16) -> u16 {
-    match env::var(name) {
-        Ok(val) => match val.parse::<u16>() {
-            Ok(port) => port,
-            Err(_) => default,
-        },
-        Err(_) => default,
-    }
-}
+
 
 // 修改证书加载函数，使用环境变量配置证书路径
-fn load_rustls_config() -> Result<ServerConfig, AppError> {
+fn load_rustls_config(settings: &config::Settings) -> Result<ServerConfig, AppError> {
     // 从环境变量获取证书路径，如果未设置则使用默认值
-    let cert_path = env::var("DOCXY_CERT_PATH")
-        .unwrap_or_else(|_| "/root/.acme.sh/example.com_ecc/fullchain.cer".to_string());
-    
-    let key_path = env::var("DOCXY_KEY_PATH")
-        .unwrap_or_else(|_| "/root/.acme.sh/example.com_ecc/example.com.key".to_string());
+    let cert_path = &settings.tls.cert_path;
+    let key_path = &settings.tls.key_path;
     
     info!("正在加载证书: {}", cert_path);
     info!("正在加载私钥: {}", key_path);

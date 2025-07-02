@@ -92,12 +92,13 @@ pub async fn get_token(req: HttpRequest) -> Result<HttpResponse, AppError> {
 }
 
 pub async fn proxy_challenge(req: HttpRequest) -> Result<HttpResponse, AppError> {
+    let upstream_registry = req.app_data::<web::Data<String>>().unwrap().as_str();
     let host = match req.connection_info().host() {
         host if host.contains(':') => host.to_string(),
         host => host.to_string()
     };
 
-    let request_url = format!("{}/v2/", crate::DOCKER_REGISTRY_URL);
+    let request_url = format!("{upstream_registry}/v2/");
     
     // 构建请求，检查是否有 Authorization 头
     let mut request_builder = HTTP_CLIENT.get(&request_url);

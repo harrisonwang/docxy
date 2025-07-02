@@ -3,12 +3,13 @@ use futures::stream::StreamExt;
 use log::{info, error};
 
 use crate::error::AppError;
-use crate::{DOCKER_REGISTRY_URL, HTTP_CLIENT};
+use crate::HTTP_CLIENT;
 
 pub async fn handle_request(
     req: HttpRequest,
     path: web::Path<(String, String, String)>,
 ) -> Result<HttpResponse, AppError> {
+    let upstream_registry = req.app_data::<web::Data<String>>().unwrap().as_str();
     // 获取路径参数
     let (image_name, path_type, reference) = path.into_inner();
 
@@ -16,7 +17,7 @@ pub async fn handle_request(
     let path = format!("/v2/{image_name}/{path_type}/{reference}");
     
     // 构建请求，根据原始请求的方法选择 HEAD 或 GET
-    let target_url = format!("{DOCKER_REGISTRY_URL}{path}");
+    let target_url = format!("{upstream_registry}{path}");
     let mut request_builder = if req.method() == actix_web::http::Method::HEAD {
         HTTP_CLIENT.head(&target_url)
     } else {
