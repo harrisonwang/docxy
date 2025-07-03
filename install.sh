@@ -1,14 +1,10 @@
 #!/bin/bash
 
 # 设置颜色输出
-RED='
-[0;31m'
-GREEN='
-[0;32m'
-YELLOW='
-[0;33m'
-NC='
-[0m' # 无颜色
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+NC='\033[0m' # 无颜色
 
 # 初始化变量
 USE_EXISTING_CERT=false
@@ -248,8 +244,8 @@ download_docxy() {
 copy_default_config() {
   echo -e "${YELLOW}正在复制和配置默认配置文件...${NC}"
   mkdir -p /etc/docxy/config/
-  cp "$(dirname "$0")"/config/default.toml /etc/docxy/config/default.toml || {
-    echo -e "${RED}复制默认配置文件失败${NC}"
+  curl -Ls https://raw.githubusercontent.com/harrisonwang/docxy/main/config/default.toml -o /etc/docxy/config/default.toml || {
+    echo -e "${RED}下载默认配置文件失败${NC}"
     exit 1
   }
 
