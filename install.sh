@@ -456,7 +456,7 @@ main() {
     if netstat -tuln | grep -q ":${HTTP_PORT} "; then
       echo -e "${RED}端口 ${HTTP_PORT} 已被占用，请选择其他端口${NC}"
       exit 1
-    }
+    fi
     
     # 下载并配置服务
     download_docxy
