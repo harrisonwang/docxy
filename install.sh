@@ -1,10 +1,14 @@
 #!/bin/bash
 
 # 设置颜色输出
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[0;33m'
-NC='\033[0m' # 无颜色
+RED='
+[0;31m'
+GREEN='
+[0;32m'
+YELLOW='
+[0;33m'
+NC='
+[0m' # 无颜色
 
 # 初始化变量
 USE_EXISTING_CERT=false
@@ -14,6 +18,7 @@ HTTP_PORT=80
 HTTPS_PORT=443
 BEHIND_PROXY=false
 HTTPS_ENABLED=true
+HTTP_ENABLED=true # 新增：HTTP是否启用
 
 # 检查是否以 root 权限运行
 if [ "$EUID" -ne 0 ]; then
@@ -239,6 +244,27 @@ download_docxy() {
   echo -e "${GREEN}docxy 下载成功到 /usr/local/bin/docxy${NC}"
 }
 
+# 复制默认配置文件
+copy_default_config() {
+  echo -e "${YELLOW}正在复制和配置默认配置文件...${NC}"
+  mkdir -p /etc/docxy/config/
+  cp "$(dirname "$0")"/config/default.toml /etc/docxy/config/default.toml || {
+    echo -e "${RED}复制默认配置文件失败${NC}"
+    exit 1
+  }
+
+  # 修改 default.toml 中的配置
+  sed -i "s/^http_port = .*/http_port = ${HTTP_PORT}/" /etc/docxy/config/default.toml
+  sed -i "s/^https_port = .*/https_port = ${HTTPS_PORT}/" /etc/docxy/config/default.toml
+  sed -i "s/^http_enabled = .*/http_enabled = ${HTTP_ENABLED}/" /etc/docxy/config/default.toml
+  sed -i "s/^https_enabled = .*/https_enabled = ${HTTPS_ENABLED}/" /etc/docxy/config/default.toml
+  sed -i "s/^behind_proxy = .*/behind_proxy = ${BEHIND_PROXY}/" /etc/docxy/config/default.toml
+  sed -i "s#^cert_path = .*#cert_path = \"${DOCXY_CERT_PATH}\"#" /etc/docxy/config/default.toml
+  sed -i "s#^key_path = .*#key_path = \"${DOCXY_KEY_PATH}\"#" /etc/docxy/config/default.toml
+
+  echo -e "${GREEN}默认配置文件已复制并配置到 /etc/docxy/config/default.toml${NC}"
+}
+
 # 修改systemd服务创建函数
 create_service() {
   echo -e "${YELLOW}正在创建 systemd 服务...${NC}"
@@ -251,25 +277,11 @@ After=network.target
 [Service]
 Type=simple
 User=root
-EOF
-
-  # 根据模式添加最小化环境变量
-  if [ "$BEHIND_PROXY" = true ]; then
-    # 代理模式：设置代理标志、端口和日志级别
-    echo "Environment=\"DOCXY_BEHIND_PROXY=true\"" >> /etc/systemd/system/docxy.service
-    echo "Environment=\"DOCXY_HTTP_PORT=$HTTP_PORT\"" >> /etc/systemd/system/docxy.service
-    echo "Environment=\"RUST_LOG=info\"" >> /etc/systemd/system/docxy.service
-  else
-    # 独立模式：设置证书路径和日志级别
-    echo "Environment=\"DOCXY_CERT_PATH=$DOCXY_CERT_PATH\"" >> /etc/systemd/system/docxy.service
-    echo "Environment=\"DOCXY_KEY_PATH=$DOCXY_KEY_PATH\"" >> /etc/systemd/system/docxy.service
-    echo "Environment=\"RUST_LOG=info\"" >> /etc/systemd/system/docxy.service
-  fi
-  
-  cat >> /etc/systemd/system/docxy.service << EOF
+Environment="RUST_LOG=info"
 ExecStart=/usr/local/bin/docxy
 Restart=on-failure
 RestartSec=5s
+WorkingDirectory=/etc/docxy
 
 [Install]
 WantedBy=multi-user.target
@@ -415,7 +427,7 @@ EOF
 
   echo -e "${GREEN}Nginx 配置文件已创建: $NGINX_CONF_FILE${NC}"
   echo -e "${YELLOW}请检查配置并重新加载 Nginx:${NC}"
-  echo -e "${YELLOW}  nginx -t && systemctl reload nginx${NC}"
+  echo -e "  nginx -t && systemctl reload nginx${NC}"
 }
 
 # 主函数
@@ -425,6 +437,9 @@ main() {
   get_domain
   ask_proxy_configuration
   
+  # 复制默认配置文件，无论哪种模式都需要
+  copy_default_config
+
   if [ "$BEHIND_PROXY" = true ]; then
     # Nginx代理模式
     if [ "$USE_EXISTING_CERT" = true ]; then
@@ -441,7 +456,7 @@ main() {
     if netstat -tuln | grep -q ":${HTTP_PORT} "; then
       echo -e "${RED}端口 ${HTTP_PORT} 已被占用，请选择其他端口${NC}"
       exit 1
-    fi
+    }
     
     # 下载并配置服务
     download_docxy

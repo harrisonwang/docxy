@@ -30,8 +30,7 @@ pub struct Settings {
 impl Settings {
     pub fn new() -> Result<Self, config::ConfigError> {
         let builder = config::Config::builder()
-            .add_source(config::File::with_name("config/default"))
-            .add_source(config::Environment::with_prefix("DOCXY").separator("_"));
+            .add_source(config::File::with_name("config/default"));
 
         builder.build()?.try_deserialize()
     }
