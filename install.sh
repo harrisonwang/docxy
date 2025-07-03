@@ -432,9 +432,6 @@ main() {
   
   get_domain
   ask_proxy_configuration
-  
-  # 复制默认配置文件，无论哪种模式都需要
-  copy_default_config
 
   if [ "$BEHIND_PROXY" = true ]; then
     # Nginx代理模式
@@ -457,6 +454,7 @@ main() {
     # 下载并配置服务
     download_docxy
     create_service
+    copy_default_config
     
     # 创建Nginx配置
     create_nginx_config
@@ -480,6 +478,7 @@ main() {
     # 下载并配置服务
     download_docxy
     create_service
+    copy_default_config
   fi
   
   # 启动服务
