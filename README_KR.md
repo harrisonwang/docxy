@@ -1,7 +1,7 @@
 # Docxy
 
-[![English](https://img.shields.io/badge/English-Click-orange)](README.md)
-[![简体中文](https://img.shields.io/badge/简体中文-点击查看-blue)](README_CN.md)
+[![English](https://img.shields.io/badge/English-Click-orange)](README_EN.md)
+[![简体中文](https://img.shields.io/badge/简体中文-点击查看-blue)](README.md)
 [![Русский](https://img.shields.io/badge/Русский-Нажмите-orange)](README_RU.md)
 [![Español](https://img.shields.io/badge/Español-Clic-blue)](README_ES.md)
 [![한국어](https://img.shields.io/badge/한국어-클릭-orange)](README_KR.md)
@@ -52,9 +52,6 @@ Docker Hub는 이미지 가져오기에 대해 엄격한 속도 제한 정책을
 | **Personal (인증됨)**       | **100/시간/계정**   |
 | **인증되지 않은 사용자**    | **10/시간/IP**      |
 
-> [!WARNING]
-> 참고: 이 제한은 2025년 4월 1일부터 적용됩니다
-
 ## 기술 원리
 
 Docxy는 완전한 Docker Registry API 프록시를 구현하며, Docker 클라이언트 프록시 구성만 추가하면 사용할 수 있습니다.
@@ -71,7 +68,7 @@ graph TD
         RouterHandler -->|/v2/| ChallengeHandler[챌린지 핸들러<br>proxy_challenge]
         RouterHandler -->|/auth/token| TokenHandler[토큰 핸들러<br>get_token]
         RouterHandler -->|/v2/namespace/image/path_type| RequestHandler[요청 핸들러<br>handle_request]
-        RouterHandler -->|/health| HealthCheck[헬스 체크]
+        RouterHandler -->|/health| HealthCheck[헬스 체크<br>health_check]
         
         ChallengeHandler --> HttpClient
         TokenHandler --> HttpClient
@@ -89,6 +86,7 @@ graph TD
 
 ```mermaid
 sequenceDiagram
+    autonumber
     actor Client as Docker 클라이언트
     participant Proxy as Docxy Proxy
     participant Registry as Docker Registry
@@ -98,26 +96,46 @@ sequenceDiagram
     Client->>Proxy: GET /v2/
     Proxy->>+Registry: GET /v2/
     Registry-->>-Proxy: 401 Unauthorized (WWW-Authenticate)
-    Proxy->>Proxy: WWW-Authenticate 헤더 수정, 로컬 /auth/token 지정
+    Proxy->>Proxy: WWW-Authenticate 헤더 수정, realm을 로컬 /auth/token으로 지정
     Proxy-->>Client: 401 수정된 인증 헤더 반환
     
     %% 토큰 획득
-    Client->>Proxy: GET /auth/token?scope=repository:redis:pull
-    Proxy->>+Auth: GET /token?service=registry.docker.io&scope=repository:library/redis:pull
+    Client->>Proxy: GET /auth/token?scope=repository:library/cirros:pull
+    Proxy->>+Auth: GET /token?service=registry.docker.io&scope=repository:library/cirros:pull
     Auth-->>-Proxy: 200 토큰 반환
     Proxy-->>Client: 200 원본 토큰 응답 반환
     
-    %% 이미지 메타데이터 요청 처리
-    Client->>Proxy: GET /v2/library/redis/manifests/latest
+    %% 이미지 다이제스트 요청 처리
+    Client->>Proxy: HEAD /v2/library/cirros/manifests/latest
     Proxy->>+Registry: 요청 전달(인증 헤더 및 Accept 헤더 포함)
-    Registry-->>-Proxy: 이미지 매니페스트 반환
-    Proxy-->>Client: 이미지 매니페스트 반환(원본 응답 헤더 및 상태 코드 유지)
+    Registry-->>-Proxy: 이미지 고유 식별자 반환
+    Proxy-->>Client: 이미지 고유 식별자 반환(원본 응답 헤더 및 상태 코드 유지)
+
+    %% 이미지 메타데이터 요청 처리
+    Client->>Proxy: GET /v2/library/cirros/manifests/{docker-content-digest}
+    Proxy->>+Registry: 요청 전달(인증 헤더 및 Accept 헤더 포함)
+    Registry-->>-Proxy: 이미지 메타데이터 반환
+    Proxy-->>Client: 이미지 메타데이터 반환(원본 응답 헤더 및 상태 코드 유지)
+
+    %% 이미지 설정 및 레이어 정보 요청 처리
+    Client->>Proxy: GET /v2/library/cirros/manifests/{digest}
+    Proxy->>+Registry: 요청 전달(인증 헤더 및 Accept 헤더 포함)
+    Registry-->>-Proxy: 지정된 아키텍처의 이미지 설정 및 레이어 정보 반환
+    Proxy-->>Client: 지정된 아키텍처의 이미지 설정 및 레이어 정보 반환(원본 응답 헤더 및 상태 코드 유지)
+
+    %% 이미지 설정 세부정보 요청 처리
+    Client->>Proxy: GET /v2/library/cirros/blobs/{digest}
+    Proxy->>+Registry: 요청 전달(인증 헤더 및 Accept 헤더 포함)
+    Registry-->>-Proxy: 이미지 설정 세부정보 반환
+    Proxy-->>Client: 이미지 설정 세부정보 반환(원본 응답 헤더 및 상태 코드 유지)
     
-    %% 바이너리 데이터 처리
-    Client->>Proxy: GET /v2/library/redis/blobs/{digest}
-    Proxy->>+Registry: blob 요청 전달
-    Registry-->>-Proxy: blob 데이터 반환
-    Proxy-->>Client: blob 데이터 스트리밍 반환
+    %% 이미지 레이어 바이너리 데이터 요청 처리(각 레이어별 반복)
+    loop 각 이미지 레이어에 대해
+        Client->>Proxy: GET /v2/library/cirros/blobs/{digest}
+        Proxy->>+Registry: blob 요청 전달
+        Registry-->>-Proxy: blob 데이터 반환
+        Proxy-->>Client: blob 데이터 스트리밍 반환
+    end
 ```
 
 ### 인증서 처리 과정
@@ -199,15 +217,42 @@ bash <(curl -Ls https://raw.githubusercontent.com/harrisonwang/docxy/main/instal
    cargo build --release
    ```
 
-### Docker 클라이언트 구성
+### Docker 클라이언트 사용법
 
-`/etc/docker/daemon.json` 구성 파일을 편집하고 다음 프록시 설정을 추가하세요:
+#### 기본 사용법
+
+1. `/etc/docker/daemon.json` 구성 파일을 편집하고 다음 프록시 설정을 추가하세요:
 
 ```json
 {
   "registry-mirrors": ["https://test.com"]
 }
 ```
+
+2. `docker pull hello-world` 명령어를 실행하여 이미지를 가져오세요
+
+#### 로그인 방식 사용법
+
+1. `docker login test.com`을 사용하여 Docker 이미지 저장소에 로그인하세요
+2. `~/.docker/config.json` 파일을 수동으로 편집하고 다음 내용을 추가하세요:
+```diff
+{
+	"auths": {
+		"test.com": {
+			"auth": "<base64 인코딩된 사용자명:비밀번호 또는 토큰>"
+-		}
++		},
++		"https://index.docker.io/v1/": {
++			"auth": "<위와 동일>"
++		}
++	}
+}
+```
+
+> [!TIP]
+> Windows 11에서는 `%USERPROFILE%\.docker\config.json`에 위치합니다
+
+3. `docker pull hello-world` 명령어를 실행하여 인증된 방식으로 이미지를 가져오면 가져오기 한도가 증가합니다
 
 ### 헬스 체크
 

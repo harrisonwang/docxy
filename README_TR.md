@@ -1,7 +1,7 @@
 # Docxy
 
-[![English](https://img.shields.io/badge/English-Click-orange)](README.md)
-[![简体中文](https://img.shields.io/badge/简体中文-点击查看-blue)](README_CN.md)
+[![English](https://img.shields.io/badge/English-Click-orange)](README_EN.md)
+[![简体中文](https://img.shields.io/badge/简体中文-点击查看-blue)](README.md)
 [![Русский](https://img.shields.io/badge/Русский-Нажмите-orange)](README_RU.md)
 [![Español](https://img.shields.io/badge/Español-Clic-blue)](README_ES.md)
 [![한국어](https://img.shields.io/badge/한국어-클릭-orange)](README_KR.md)
@@ -52,9 +52,6 @@ Docker Hub, görüntü çekme işlemleri için katı hız sınırlama politikala
 | **Personal (kimliği doğrulanmış)** | **100/saat/hesap** |
 | **Kimliği doğrulanmamış kullanıcılar** | **10/saat/IP**     |
 
-> [!WARNING]
-> Not: Bu sınırlama 1 Nisan 2025 tarihinden itibaren geçerli olacaktır
-
 ## Teknik İlkeler
 
 Docxy, eksiksiz bir Docker Registry API proxy'si uygular ve kullanmak için sadece Docker istemci proxy yapılandırması eklemeniz gerekir.
@@ -71,7 +68,7 @@ graph TD
         RouterHandler -->|/v2/| ChallengeHandler[Meydan Okuma İşleyici<br>proxy_challenge]
         RouterHandler -->|/auth/token| TokenHandler[Token İşleyici<br>get_token]
         RouterHandler -->|/v2/namespace/image/path_type| RequestHandler[İstek İşleyici<br>handle_request]
-        RouterHandler -->|/health| HealthCheck[Sağlık Kontrolü]
+        RouterHandler -->|/health| HealthCheck[Sağlık Kontrolü<br>health_check]
         
         ChallengeHandler --> HttpClient
         TokenHandler --> HttpClient
@@ -89,6 +86,7 @@ graph TD
 
 ```mermaid
 sequenceDiagram
+    autonumber
     actor Client as Docker İstemcisi
     participant Proxy as Docxy Proxy
     participant Registry as Docker Registry
@@ -98,26 +96,46 @@ sequenceDiagram
     Client->>Proxy: GET /v2/
     Proxy->>+Registry: GET /v2/
     Registry-->>-Proxy: 401 Unauthorized (WWW-Authenticate)
-    Proxy->>Proxy: WWW-Authenticate başlığını düzenle, yerel /auth/token'e işaret et
+    Proxy->>Proxy: WWW-Authenticate başlığını düzenle, realm yerel /auth/token'e işaret eder
     Proxy-->>Client: 401 Düzenlenmiş kimlik doğrulama başlığını döndür
     
     %% Token Alma
-    Client->>Proxy: GET /auth/token?scope=repository:redis:pull
-    Proxy->>+Auth: GET /token?service=registry.docker.io&scope=repository:library/redis:pull
+    Client->>Proxy: GET /auth/token?scope=repository:library/cirros:pull
+    Proxy->>+Auth: GET /token?service=registry.docker.io&scope=repository:library/cirros:pull
     Auth-->>-Proxy: 200 Token döndür
     Proxy-->>Client: 200 Orijinal token yanıtını döndür
     
-    %% Görüntü Metadata İsteği İşleme
-    Client->>Proxy: GET /v2/library/redis/manifests/latest
+    %% Görüntü Özet İsteği İşleme
+    Client->>Proxy: HEAD /v2/library/cirros/manifests/latest
     Proxy->>+Registry: İsteği ilet (kimlik doğrulama başlığı ve Accept başlığı ile)
-    Registry-->>-Proxy: Görüntü manifestini döndür
-    Proxy-->>Client: Görüntü manifestini döndür (orijinal yanıt başlıklarını ve durum kodunu koru)
+    Registry-->>-Proxy: Görüntü benzersiz tanımlayıcısını döndür
+    Proxy-->>Client: Görüntü benzersiz tanımlayıcısını döndür (orijinal yanıt başlıklarını ve durum kodunu koru)
+
+    %% Görüntü Metadata İsteği İşleme
+    Client->>Proxy: GET /v2/library/cirros/manifests/{docker-content-digest}
+    Proxy->>+Registry: İsteği ilet (kimlik doğrulama başlığı ve Accept başlığı ile)
+    Registry-->>-Proxy: Görüntü metadatasını döndür
+    Proxy-->>Client: Görüntü metadatasını döndür (orijinal yanıt başlıklarını ve durum kodunu koru)
+
+    %% Görüntü Yapılandırması ve Katman Bilgisi İsteği İşleme
+    Client->>Proxy: GET /v2/library/cirros/manifests/{digest}
+    Proxy->>+Registry: İsteği ilet (kimlik doğrulama başlığı ve Accept başlığı ile)
+    Registry-->>-Proxy: Belirtilen mimari için görüntü yapılandırması ve katman bilgisini döndür
+    Proxy-->>Client: Belirtilen mimari için görüntü yapılandırması ve katman bilgisini döndür (orijinal yanıt başlıklarını ve durum kodunu koru)
+
+    %% Görüntü Yapılandırması Detay İsteği İşleme
+    Client->>Proxy: GET /v2/library/cirros/blobs/{digest}
+    Proxy->>+Registry: İsteği ilet (kimlik doğrulama başlığı ve Accept başlığı ile)
+    Registry-->>-Proxy: Görüntü yapılandırma detaylarını döndür
+    Proxy-->>Client: Görüntü yapılandırma detaylarını döndür (orijinal yanıt başlıklarını ve durum kodunu koru)
     
-    %% İkili Veri İşleme
-    Client->>Proxy: GET /v2/library/redis/blobs/{digest}
-    Proxy->>+Registry: Blob isteğini ilet
-    Registry-->>-Proxy: Blob verilerini döndür
-    Proxy-->>Client: Blob verilerini akış olarak döndür
+    %% Görüntü Katmanı İkili Veri İsteği İşleme (her katman için döngü)
+    loop Her görüntü katmanı için
+        Client->>Proxy: GET /v2/library/cirros/blobs/{digest}
+        Proxy->>+Registry: Blob isteğini ilet
+        Registry-->>-Proxy: Blob verilerini döndür
+        Proxy-->>Client: Blob verilerini akış olarak döndür
+    end
 ```
 
 ### Sertifika İşleme Süreci
@@ -199,15 +217,42 @@ bash <(curl -Ls https://raw.githubusercontent.com/harrisonwang/docxy/main/instal
    cargo build --release
    ```
 
-### Docker İstemci Yapılandırması
+### Docker İstemci Kullanımı
 
-`/etc/docker/daemon.json` yapılandırma dosyasını düzenleyin ve aşağıdaki proxy ayarlarını ekleyin:
+#### Varsayılan Kullanım
+
+1. `/etc/docker/daemon.json` yapılandırma dosyasını düzenleyin ve aşağıdaki proxy ayarlarını ekleyin:
 
 ```json
 {
   "registry-mirrors": ["https://test.com"]
 }
 ```
+
+2. Görüntüleri çekmek için `docker pull hello-world` komutunu çalıştırın
+
+#### Giriş Yapmış Kullanım
+
+1. Docker görüntü deponuzda oturum açmak için `docker login test.com` kullanın
+2. `~/.docker/config.json` dosyasını manuel olarak düzenleyin ve aşağıdaki içeriği ekleyin:
+```diff
+{
+	"auths": {
+		"test.com": {
+			"auth": "<base64 kodlanmış kullanıcı_adı:şifre veya Token>"
+-		}
++		},
++		"https://index.docker.io/v1/": {
++			"auth": "<yukarıdaki ile aynı>"
++		}
++	}
+}
+```
+
+> [!TIP]
+> Windows 11'de dosya `%USERPROFILE%\.docker\config.json` konumundadır
+
+3. Kimlik doğrulama ile görüntü çekmek için `docker pull hello-world` komutunu çalıştırın, böylece çekme limitlerini artırabilirsiniz
 
 ### Sağlık Kontrolü
 

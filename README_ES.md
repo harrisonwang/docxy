@@ -1,7 +1,7 @@
 # Docxy
 
-[![English](https://img.shields.io/badge/English-Click-orange)](README.md)
-[![简体中文](https://img.shields.io/badge/简体中文-点击查看-blue)](README_CN.md)
+[![English](https://img.shields.io/badge/English-Click-orange)](README_EN.md)
+[![简体中文](https://img.shields.io/badge/简体中文-点击查看-blue)](README.md)
 [![Русский](https://img.shields.io/badge/Русский-Нажмите-orange)](README_RU.md)
 [![Español](https://img.shields.io/badge/Español-Clic-blue)](README_ES.md)
 [![한국어](https://img.shields.io/badge/한국어-클릭-orange)](README_KR.md)
@@ -52,9 +52,6 @@ Docker Hub implementa políticas estrictas de limitación de velocidad para la d
 | **Personal (autenticado)**   | **100/hora/cuenta**             |
 | **Usuarios no autenticados** | **10/hora/IP**                  |
 
-> [!WARNING]
-> Nota: Esta limitación entrará en vigor a partir del 1 de abril de 2025
-
 ## Principios Técnicos
 
 Docxy implementa un proxy completo de la API de Docker Registry, que solo requiere agregar la configuración del proxy del cliente Docker para su uso.
@@ -71,7 +68,7 @@ graph TD
         RouterHandler -->|/v2/| ChallengeHandler[Manejador de Desafíos<br>proxy_challenge]
         RouterHandler -->|/auth/token| TokenHandler[Manejador de Tokens<br>get_token]
         RouterHandler -->|/v2/namespace/image/path_type| RequestHandler[Manejador de Solicitudes<br>handle_request]
-        RouterHandler -->|/health| HealthCheck[Verificación de Salud]
+        RouterHandler -->|/health| HealthCheck[Verificación de Salud<br>health_check]
         
         ChallengeHandler --> HttpClient
         TokenHandler --> HttpClient
@@ -89,6 +86,7 @@ graph TD
 
 ```mermaid
 sequenceDiagram
+    autonumber
     actor Client as Cliente Docker
     participant Proxy as Docxy Proxy
     participant Registry as Docker Registry
@@ -98,26 +96,46 @@ sequenceDiagram
     Client->>Proxy: GET /v2/
     Proxy->>+Registry: GET /v2/
     Registry-->>-Proxy: 401 Unauthorized (WWW-Authenticate)
-    Proxy->>Proxy: Modificar encabezado WWW-Authenticate, apuntando a /auth/token local
+    Proxy->>Proxy: Modificar encabezado WWW-Authenticate, realm apunta a /auth/token local
     Proxy-->>Client: 401 Devolver encabezado de autenticación modificado
     
     %% Obtención de Token
-    Client->>Proxy: GET /auth/token?scope=repository:redis:pull
-    Proxy->>+Auth: GET /token?service=registry.docker.io&scope=repository:library/redis:pull
+    Client->>Proxy: GET /auth/token?scope=repository:library/cirros:pull
+    Proxy->>+Auth: GET /token?service=registry.docker.io&scope=repository:library/cirros:pull
     Auth-->>-Proxy: 200 Devolver token
     Proxy-->>Client: 200 Devolver respuesta original del token
     
-    %% Procesamiento de Solicitud de Metadatos de Imagen
-    Client->>Proxy: GET /v2/library/redis/manifests/latest
+    %% Procesamiento de Solicitud de Digest de Imagen
+    Client->>Proxy: HEAD /v2/library/cirros/manifests/latest
     Proxy->>+Registry: Reenviar solicitud (con encabezado de autenticación y encabezado Accept)
-    Registry-->>-Proxy: Devolver manifiesto de imagen
-    Proxy-->>Client: Devolver manifiesto de imagen (preservando encabezados de respuesta originales y código de estado)
+    Registry-->>-Proxy: Devolver identificador único de imagen
+    Proxy-->>Client: Devolver identificador único de imagen (preservar encabezados de respuesta originales y código de estado)
+
+    %% Procesamiento de Solicitud de Metadatos de Imagen
+    Client->>Proxy: GET /v2/library/cirros/manifests/{docker-content-digest}
+    Proxy->>+Registry: Reenviar solicitud (con encabezado de autenticación y encabezado Accept)
+    Registry-->>-Proxy: Devolver metadatos de imagen
+    Proxy-->>Client: Devolver metadatos de imagen (preservar encabezados de respuesta originales y código de estado)
+
+    %% Procesamiento de Solicitud de Configuración de Imagen e Información de Capas
+    Client->>Proxy: GET /v2/library/cirros/manifests/{digest}
+    Proxy->>+Registry: Reenviar solicitud (con encabezado de autenticación y encabezado Accept)
+    Registry-->>-Proxy: Devolver configuración de imagen e información de capas para arquitectura especificada
+    Proxy-->>Client: Devolver configuración de imagen e información de capas para arquitectura especificada (preservar encabezados de respuesta originales y código de estado)
+
+    %% Procesamiento de Solicitud de Detalles de Configuración de Imagen
+    Client->>Proxy: GET /v2/library/cirros/blobs/{digest}
+    Proxy->>+Registry: Reenviar solicitud (con encabezado de autenticación y encabezado Accept)
+    Registry-->>-Proxy: Devolver detalles de configuración de imagen
+    Proxy-->>Client: Devolver detalles de configuración de imagen (preservar encabezados de respuesta originales y código de estado)
     
-    %% Manejo de Datos Binarios
-    Client->>Proxy: GET /v2/library/redis/blobs/{digest}
-    Proxy->>+Registry: Reenviar solicitud de blob
-    Registry-->>-Proxy: Devolver datos de blob
-    Proxy-->>Client: Transmitir datos de blob de vuelta
+    %% Procesamiento de Solicitud de Datos Binarios de Capas de Imagen (bucle para cada capa)
+    loop Para cada capa de imagen
+        Client->>Proxy: GET /v2/library/cirros/blobs/{digest}
+        Proxy->>+Registry: Reenviar solicitud de blob
+        Registry-->>-Proxy: Devolver datos de blob
+        Proxy-->>Client: Transmitir datos de blob de vuelta
+    end
 ```
 
 ### Proceso de Manejo de Certificados
@@ -199,15 +217,42 @@ bash <(curl -Ls https://raw.githubusercontent.com/harrisonwang/docxy/main/instal
    cargo build --release
    ```
 
-### Configuración del Cliente Docker
+### Uso del Cliente Docker
 
-Edita el archivo de configuración `/etc/docker/daemon.json` y agrega la siguiente configuración de proxy:
+#### Uso Predeterminado
+
+1. Edita el archivo de configuración `/etc/docker/daemon.json` y agrega la siguiente configuración de proxy:
 
 ```json
 {
   "registry-mirrors": ["https://test.com"]
 }
 ```
+
+2. Ejecuta el comando `docker pull hello-world` para descargar imágenes
+
+#### Uso con Inicio de Sesión
+
+1. Usa `docker login test.com` para iniciar sesión en tu repositorio de imágenes Docker
+2. Edita manualmente el archivo `~/.docker/config.json` y agrega el siguiente contenido:
+```diff
+{
+	"auths": {
+		"test.com": {
+			"auth": "<nombre de usuario:contraseña o Token codificado en base64>"
+-		}
++		},
++		"https://index.docker.io/v1/": {
++			"auth": "<igual que el anterior>"
++		}
++	}
+}
+```
+
+> [!TIP]
+> En Windows 11, el archivo está ubicado en `%USERPROFILE%\.docker\config.json`
+
+3. Ejecuta el comando `docker pull hello-world` para descargar imágenes con autenticación, aumentando así los límites de descarga
 
 ### Verificación de Salud
 

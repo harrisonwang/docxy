@@ -1,7 +1,7 @@
 # Docxy
 
-[![English](https://img.shields.io/badge/English-Click-orange)](README.md)
-[![简体中文](https://img.shields.io/badge/简体中文-点击查看-blue)](README_CN.md)
+[![English](https://img.shields.io/badge/English-Click-orange)](README_EN.md)
+[![简体中文](https://img.shields.io/badge/简体中文-点击查看-blue)](README.md)
 [![Русский](https://img.shields.io/badge/Русский-Нажмите-orange)](README_RU.md)
 [![Español](https://img.shields.io/badge/Español-Clic-blue)](README_ES.md)
 [![한국어](https://img.shields.io/badge/한국어-클릭-orange)](README_KR.md)
@@ -52,9 +52,6 @@ Docker Hub применяет строгие политики ограничен
 | **Personal (аутентифицированный)** | **100/час/аккаунт**           |
 | **Неаутентифицированные пользователи**    | **10/час/IP**                 |
 
-> [!WARNING]
-> Примечание: Это ограничение вступит в силу с 1 апреля 2025 года
-
 ## Технические принципы
 
 Docxy реализует полный прокси для Docker Registry API, который требует только добавления настройки прокси клиента Docker для использования.
@@ -71,7 +68,7 @@ graph TD
         RouterHandler -->|/v2/| ChallengeHandler[Обработчик запроса<br>proxy_challenge]
         RouterHandler -->|/auth/token| TokenHandler[Обработчик токенов<br>get_token]
         RouterHandler -->|/v2/namespace/image/path_type| RequestHandler[Обработчик запросов<br>handle_request]
-        RouterHandler -->|/health| HealthCheck[Проверка работоспособности]
+        RouterHandler -->|/health| HealthCheck[Проверка работоспособности<br>health_check]
         
         ChallengeHandler --> HttpClient
         TokenHandler --> HttpClient
@@ -89,6 +86,7 @@ graph TD
 
 ```mermaid
 sequenceDiagram
+    autonumber
     actor Client as Клиент Docker
     participant Proxy as Docxy Proxy
     participant Registry as Docker Registry
@@ -98,26 +96,46 @@ sequenceDiagram
     Client->>Proxy: GET /v2/
     Proxy->>+Registry: GET /v2/
     Registry-->>-Proxy: 401 Unauthorized (WWW-Authenticate)
-    Proxy->>Proxy: Изменение заголовка WWW-Authenticate, указывающего на локальный /auth/token
+    Proxy->>Proxy: Изменение заголовка WWW-Authenticate, realm указывает на локальный /auth/token
     Proxy-->>Client: 401 Возврат измененного заголовка аутентификации
     
     %% Получение токена
-    Client->>Proxy: GET /auth/token?scope=repository:redis:pull
-    Proxy->>+Auth: GET /token?service=registry.docker.io&scope=repository:library/redis:pull
+    Client->>Proxy: GET /auth/token?scope=repository:library/cirros:pull
+    Proxy->>+Auth: GET /token?service=registry.docker.io&scope=repository:library/cirros:pull
     Auth-->>-Proxy: 200 Возврат токена
     Proxy-->>Client: 200 Возврат исходного ответа с токеном
     
-    %% Обработка запроса метаданных образа
-    Client->>Proxy: GET /v2/library/redis/manifests/latest
+    %% Обработка запроса дайджеста образа
+    Client->>Proxy: HEAD /v2/library/cirros/manifests/latest
     Proxy->>+Registry: Перенаправление запроса (с заголовком аутентификации и заголовком Accept)
-    Registry-->>-Proxy: Возврат манифеста образа
-    Proxy-->>Client: Возврат манифеста образа (с сохранением исходных заголовков ответа и кода состояния)
+    Registry-->>-Proxy: Возврат уникального идентификатора образа
+    Proxy-->>Client: Возврат уникального идентификатора образа (с сохранением исходных заголовков ответа и кода состояния)
+
+    %% Обработка запроса метаданных образа
+    Client->>Proxy: GET /v2/library/cirros/manifests/{docker-content-digest}
+    Proxy->>+Registry: Перенаправление запроса (с заголовком аутентификации и заголовком Accept)
+    Registry-->>-Proxy: Возврат метаданных образа
+    Proxy-->>Client: Возврат метаданных образа (с сохранением исходных заголовков ответа и кода состояния)
+
+    %% Обработка запроса конфигурации образа и информации о слоях
+    Client->>Proxy: GET /v2/library/cirros/manifests/{digest}
+    Proxy->>+Registry: Перенаправление запроса (с заголовком аутентификации и заголовком Accept)
+    Registry-->>-Proxy: Возврат конфигурации образа и информации о слоях для указанной архитектуры
+    Proxy-->>Client: Возврат конфигурации образа и информации о слоях для указанной архитектуры (с сохранением исходных заголовков ответа и кода состояния)
+
+    %% Обработка запроса подробной информации о конфигурации образа
+    Client->>Proxy: GET /v2/library/cirros/blobs/{digest}
+    Proxy->>+Registry: Перенаправление запроса (с заголовком аутентификации и заголовком Accept)
+    Registry-->>-Proxy: Возврат подробной информации о конфигурации образа
+    Proxy-->>Client: Возврат подробной информации о конфигурации образа (с сохранением исходных заголовков ответа и кода состояния)
     
-    %% Обработка двоичных данных
-    Client->>Proxy: GET /v2/library/redis/blobs/{digest}
-    Proxy->>+Registry: Перенаправление запроса blob
-    Registry-->>-Proxy: Возврат данных blob
-    Proxy-->>Client: Потоковая передача данных blob
+    %% Обработка запроса двоичных данных слоев образа (цикл для каждого слоя)
+    loop Для каждого слоя образа
+        Client->>Proxy: GET /v2/library/cirros/blobs/{digest}
+        Proxy->>+Registry: Перенаправление запроса blob
+        Registry-->>-Proxy: Возврат данных blob
+        Proxy-->>Client: Потоковая передача данных blob
+    end
 ```
 
 ### Процесс обработки сертификата
@@ -199,15 +217,42 @@ bash <(curl -Ls https://raw.githubusercontent.com/harrisonwang/docxy/main/instal
    cargo build --release
    ```
 
-### Настройка клиента Docker
+### Использование клиента Docker
 
-Отредактируйте файл конфигурации `/etc/docker/daemon.json`, добавив следующие настройки прокси:
+#### Стандартное использование
+
+1. Отредактируйте файл конфигурации `/etc/docker/daemon.json`, добавив следующие настройки прокси:
 
 ```json
 {
   "registry-mirrors": ["https://test.com"]
 }
 ```
+
+2. Выполните команду `docker pull hello-world` для загрузки образов
+
+#### Использование с авторизацией
+
+1. Используйте `docker login test.com` для входа в ваш репозиторий Docker образов
+2. Вручную отредактируйте файл `~/.docker/config.json` и добавьте следующий контент:
+```diff
+{
+	"auths": {
+		"test.com": {
+			"auth": "<закодированное в base64 имя_пользователя:пароль или токен>"
+-		}
++		},
++		"https://index.docker.io/v1/": {
++			"auth": "<то же, что и выше>"
++		}
++	}
+}
+```
+
+> [!TIP]
+> В Windows 11 файл расположен в `%USERPROFILE%\.docker\config.json`
+
+3. Выполните команду `docker pull hello-world` для загрузки образов с аутентификацией, что увеличит лимиты загрузки
 
 ### Проверка работоспособности
 

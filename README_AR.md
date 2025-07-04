@@ -1,7 +1,7 @@
 # Docxy
 
-[![English](https://img.shields.io/badge/English-Click-orange)](README.md)
-[![简体中文](https://img.shields.io/badge/简体中文-点击查看-blue)](README_CN.md)
+[![English](https://img.shields.io/badge/English-Click-orange)](README_EN.md)
+[![简体中文](https://img.shields.io/badge/简体中文-点击查看-blue)](README.md)
 [![Русский](https://img.shields.io/badge/Русский-Нажмите-orange)](README_RU.md)
 [![Español](https://img.shields.io/badge/Español-Clic-blue)](README_ES.md)
 [![한국어](https://img.shields.io/badge/한국어-클릭-orange)](README_KR.md)
@@ -71,7 +71,7 @@ graph TD
         RouterHandler -->|/v2/| ChallengeHandler[معالج التحدي<br>proxy_challenge]
         RouterHandler -->|/auth/token| TokenHandler[معالج الرمز المميز<br>get_token]
         RouterHandler -->|/v2/namespace/image/path_type| RequestHandler[معالج الطلبات<br>handle_request]
-        RouterHandler -->|/health| HealthCheck[فحص الصحة]
+        RouterHandler -->|/health| HealthCheck[فحص الصحة<br>health_check]
         
         ChallengeHandler --> HttpClient
         TokenHandler --> HttpClient
@@ -89,6 +89,7 @@ graph TD
 
 ```mermaid
 sequenceDiagram
+    autonumber
     actor Client as عميل دوكر
     participant Proxy as وكيل Docxy
     participant Registry as سجل دوكر
@@ -98,26 +99,46 @@ sequenceDiagram
     Client->>Proxy: GET /v2/
     Proxy->>+Registry: GET /v2/
     Registry-->>-Proxy: 401 Unauthorized (WWW-Authenticate)
-    Proxy->>Proxy: تعديل رأس WWW-Authenticate، توجيه إلى /auth/token المحلي
+    Proxy->>Proxy: تعديل رأس WWW-Authenticate، realm يشير إلى /auth/token المحلي
     Proxy-->>Client: 401 إرجاع رأس المصادقة المعدل
     
     %% الحصول على الرمز المميز
-    Client->>Proxy: GET /auth/token?scope=repository:redis:pull
-    Proxy->>+Auth: GET /token?service=registry.docker.io&scope=repository:library/redis:pull
+    Client->>Proxy: GET /auth/token?scope=repository:library/cirros:pull
+    Proxy->>+Auth: GET /token?service=registry.docker.io&scope=repository:library/cirros:pull
     Auth-->>-Proxy: 200 إرجاع الرمز المميز
     Proxy-->>Client: 200 إرجاع استجابة الرمز المميز الأصلية
     
-    %% معالجة طلب بيانات وصف الصورة
-    Client->>Proxy: GET /v2/library/redis/manifests/latest
+    %% معالجة طلب هضم الصورة
+    Client->>Proxy: HEAD /v2/library/cirros/manifests/latest
     Proxy->>+Registry: إعادة توجيه الطلب (مع رأس المصادقة ورأس Accept)
-    Registry-->>-Proxy: إرجاع بيان الصورة
-    Proxy-->>Client: إرجاع بيان الصورة (الحفاظ على رؤوس الاستجابة الأصلية ورمز الحالة)
+    Registry-->>-Proxy: إرجاع المعرف الفريد للصورة
+    Proxy-->>Client: إرجاع المعرف الفريد للصورة (الحفاظ على رؤوس الاستجابة الأصلية ورمز الحالة)
+
+    %% معالجة طلب بيانات وصف الصورة
+    Client->>Proxy: GET /v2/library/cirros/manifests/{docker-content-digest}
+    Proxy->>+Registry: إعادة توجيه الطلب (مع رأس المصادقة ورأس Accept)
+    Registry-->>-Proxy: إرجاع بيانات وصف الصورة
+    Proxy-->>Client: إرجاع بيانات وصف الصورة (الحفاظ على رؤوس الاستجابة الأصلية ورمز الحالة)
+
+    %% معالجة طلب تكوين الصورة ومعلومات الطبقة
+    Client->>Proxy: GET /v2/library/cirros/manifests/{digest}
+    Proxy->>+Registry: إعادة توجيه الطلب (مع رأس المصادقة ورأس Accept)
+    Registry-->>-Proxy: إرجاع تكوين الصورة ومعلومات الطبقة للهيكل المحدد
+    Proxy-->>Client: إرجاع تكوين الصورة ومعلومات الطبقة للهيكل المحدد (الحفاظ على رؤوس الاستجابة الأصلية ورمز الحالة)
+
+    %% معالجة طلب تفاصيل تكوين الصورة
+    Client->>Proxy: GET /v2/library/cirros/blobs/{digest}
+    Proxy->>+Registry: إعادة توجيه الطلب (مع رأس المصادقة ورأس Accept)
+    Registry-->>-Proxy: إرجاع تفاصيل تكوين الصورة
+    Proxy-->>Client: إرجاع تفاصيل تكوين الصورة (الحفاظ على رؤوس الاستجابة الأصلية ورمز الحالة)
     
-    %% معالجة البيانات الثنائية
-    Client->>Proxy: GET /v2/library/redis/blobs/{digest}
-    Proxy->>+Registry: إعادة توجيه طلب blob
-    Registry-->>-Proxy: إرجاع بيانات blob
-    Proxy-->>Client: تدفق بيانات blob مرة أخرى
+    %% معالجة طلب البيانات الثنائية لطبقات الصورة (حلقة لكل طبقة)
+    loop لكل طبقة صورة
+        Client->>Proxy: GET /v2/library/cirros/blobs/{digest}
+        Proxy->>+Registry: إعادة توجيه طلب blob
+        Registry-->>-Proxy: إرجاع بيانات blob
+        Proxy-->>Client: تدفق بيانات blob مرة أخرى
+    end
 ```
 
 ### عملية معالجة الشهادات
@@ -199,15 +220,42 @@ bash <(curl -Ls https://raw.githubusercontent.com/harrisonwang/docxy/main/instal
    cargo build --release
    ```
 
-### تكوين عميل دوكر
+### استخدام عميل دوكر
 
-قم بتحرير ملف التكوين `/etc/docker/daemon.json` وأضف إعدادات الوكيل التالية:
+#### الاستخدام الافتراضي
+
+1. قم بتحرير ملف التكوين `/etc/docker/daemon.json` وأضف إعدادات الوكيل التالية:
 
 ```json
 {
   "registry-mirrors": ["https://test.com"]
 }
 ```
+
+2. نفذ الأمر `docker pull hello-world` لسحب الصور
+
+#### الاستخدام مع تسجيل الدخول
+
+1. استخدم `docker login test.com` لتسجيل الدخول إلى مستودع صور دوكر الخاص بك
+2. قم بتحرير ملف `~/.docker/config.json` يدويًا وأضف المحتوى التالي:
+```diff
+{
+	"auths": {
+		"test.com": {
+			"auth": "<اسم المستخدم وكلمة المرور أو الرمز المميز مُشفران بـ base64>"
+-		}
++		},
++		"https://index.docker.io/v1/": {
++			"auth": "<نفس المحتوى أعلاه>"
++		}
++	}
+}
+```
+
+> [!TIP]
+> في Windows 11، يقع الملف في `%USERPROFILE%\.docker\config.json`
+
+3. نفذ الأمر `docker pull hello-world` لسحب الصور بطريقة مصادق عليها، مما يزيد من حدود السحب
 
 ### فحص الصحة
 

@@ -1,7 +1,7 @@
 # Docxy
 
-[![English](https://img.shields.io/badge/English-Click-orange)](README.md)
-[![简体中文](https://img.shields.io/badge/简体中文-点击查看-blue)](README_CN.md)
+[![English](https://img.shields.io/badge/English-Click-orange)](README_EN.md)
+[![简体中文](https://img.shields.io/badge/简体中文-点击查看-blue)](README.md)
 [![Русский](https://img.shields.io/badge/Русский-Нажмите-orange)](README_RU.md)
 [![Español](https://img.shields.io/badge/Español-Clic-blue)](README_ES.md)
 [![한국어](https://img.shields.io/badge/한국어-클릭-orange)](README_KR.md)
@@ -10,68 +10,65 @@
 [![Rust](https://img.shields.io/badge/rust-1.75%2B-blue.svg)](https://www.rust-lang.org)
 [![Docker](https://img.shields.io/badge/docker-28%2B-orange.svg)](https://www.docker.com)
 
-Lightweight Docker image proxy service that solves Docker Hub access restriction issues in certain regions.
+轻量级 Docker 镜像代理服务，解决国内访问 Docker Hub 受限问题。
 
-## Background
+## 背景
 
-### Introduction to Docker Image Repositories
+### Docker 镜像仓库简介
 
-Docker image repositories are services for storing and distributing Docker container images, providing centralized storage for containerized applications. These repositories allow developers to push, store, manage, and pull container images, simplifying the distribution and deployment process of applications.
+Docker 镜像仓库是存储和分发 Docker 容器镜像的服务，为容器化应用提供中心化存储。这些仓库允许开发者推送、存储、管理和拉取容器镜像，简化了应用的分发和部署流程。
 
-### Types of Image Repositories
+### 镜像仓库类型
 
-- **Official Image Repository**: Docker Hub, the official repository maintained by Docker Inc.
-- **Third-party Independent Image Repositories**: Such as AWS ECR, Google GCR, Alibaba Cloud ACR, etc., used for publishing and sharing proprietary images
-- **Image Acceleration Services**: Such as Tsinghua TUNA Mirror, Alibaba Cloud Image Accelerator, etc., which provide image acceleration services for Docker Hub
+- **官方镜像仓库**：Docker Hub，由 Docker 公司维护的官方仓库
+- **第三方独立镜像仓库**：如 AWS ECR、Google GCR、阿里云 ACR 等，用于发布和共享自有镜像
+- **镜像加速服务**：如清华 TUNA 镜像站、阿里云镜像加速器等，提供 Docker Hub 的镜像加速服务
 
 > [!NOTE]
-> Due to network restrictions, direct access to Docker Hub is difficult in certain regions, and most image acceleration services have also been discontinued.
+> 受网络限制影响，国内直接访问 Docker Hub 困难，多数镜像加速服务也已停止服务。
 
-### Why Image Proxies are Needed
+### 为什么需要镜像代理
 
-Image proxies are middleware services that connect Docker clients with Docker Hub. They don't store actual images but only forward requests, effectively solving:
+镜像代理是连接 Docker 客户端与 Docker Hub 的中间层服务，不存储实际镜像，仅转发请求，有效解决：
 
-- Network access restriction issues
-- Improving image download speed
+- 网络访问限制问题
+- 提升镜像下载速度
 
-Docxy is such an image proxy service, aiming to bypass network blockages and accelerate image downloads through a self-hosted image proxy.
+Docxy 就是这样一个镜像代理服务，目标是通过自建镜像代理，绕过网络封锁并加速镜像下载。
 
-### Usage Limitations of Image Proxies
+### 镜像代理的使用限制
 
-Docker Hub implements strict rate limiting policies for image pulls. When using proxy services, the following limitations exist:
+Docker Hub 对镜像拉取实施了严格的速率限制策略，使用代理服务时，存在以下限制:
 
-- If not logged in, each IP address is limited to 10 image pulls per hour
-- If logged in with a personal account, you can pull 100 images per hour
-- For other account types, please refer to the table below:
+- 如果未登录，每个 IP 地址每小时仅允许拉取 10 次镜像
+- 如果使用个人账户登录，每小时可以拉取 100 次镜像
+- 其他类型账户的具体限制请参考下表：
 
-| User Type                   | Pull Rate Limit       |
-| --------------------------- | --------------------- |
-| Business (authenticated)    | Unlimited             |
-| Team (authenticated)        | Unlimited             |
-| Pro (authenticated)         | Unlimited             |
-| **Personal (authenticated)**| **100/hour/account**  |
-| **Unauthenticated users**   | **10/hour/IP**        |
+| 用户类型                     | pull 速率限制     |
+| ---------------------------- | ----------------- |
+| Business (authenticated)     | 无限制            |
+| Team (authenticated)         | 无限制            |
+| Pro (authenticated)          | 无限制            |
+| **Personal (authenticated)** | **100/小时/账户** |
+| **Unauthenticated users**    | **10/小时/IP**    |
 
-> [!WARNING]
-> Note: This limitation will take effect from April 1, 2025
+## 技术原理
 
-## Technical Principles
+Docxy 实现了完整的 Docker Registry API 代理，仅需添加 Docker 客户端代理配置即可使用。
 
-Docxy implements a complete Docker Registry API proxy, which only requires adding Docker client proxy configuration to use.
-
-### System Architecture
+### 系统架构
 
 ```mermaid
 graph TD
-    Client[Docker Client] -->|Send Request| HttpServer[HTTP Server]
+    Client[Docker 客户端] -->|发送请求| HttpServer[HTTP 服务器]
     
-    subgraph "Docker Image Proxy Service"
-        HttpServer -->|Route Request| RouterHandler[Router Handler]
+    subgraph "Docker 镜像代理服务"
+        HttpServer -->|路由请求| RouterHandler[路由处理器]
         
-        RouterHandler -->|/v2/| ChallengeHandler[Challenge Handler<br>proxy_challenge]
-        RouterHandler -->|/auth/token| TokenHandler[Token Handler<br>get_token]
-        RouterHandler -->|/v2/namespace/image/path_type| RequestHandler[Request Handler<br>handle_request]
-        RouterHandler -->|/health| HealthCheck[Health Check]
+        RouterHandler -->|/v2/| ChallengeHandler[质询处理器<br>proxy_challenge]
+        RouterHandler -->|/auth/token| TokenHandler[令牌处理器<br>get_token]
+        RouterHandler -->|/v2/namespace/image/path_type| RequestHandler[请求处理器<br>handle_request]
+        RouterHandler -->|/health| HealthCheck[健康检查<br>health_check]
         
         ChallengeHandler --> HttpClient
         TokenHandler --> HttpClient
@@ -79,105 +76,126 @@ graph TD
         
     end
     
-    HttpClient[HTTP Client<br>reqwest]
+    HttpClient[HTTP 客户端<br>reqwest]
     
-    HttpClient -->|Auth Request| DockerAuth[Docker Auth<br>auth.docker.io]
-    HttpClient -->|Image Request| DockerRegistry[Docker Registry<br>registry-1.docker.io]
+    HttpClient -->|认证请求| DockerAuth[Docker Auth<br>auth.docker.io]
+    HttpClient -->|镜像请求| DockerRegistry[Docker Registry<br>registry-1.docker.io]
 ```
 
-### Request Flow
+### 请求流程
 
 ```mermaid
 sequenceDiagram
-    actor Client as Docker Client
+    autonumber
+    actor Client as Docker 客户端
     participant Proxy as Docxy Proxy
     participant Registry as Docker Registry
     participant Auth as Docker Auth Service
     
-    %% Challenge Request Handling
+    %% 质询请求处理
     Client->>Proxy: GET /v2/
     Proxy->>+Registry: GET /v2/
     Registry-->>-Proxy: 401 Unauthorized (WWW-Authenticate)
-    Proxy->>Proxy: Modify WWW-Authenticate header, pointing to local /auth/token
-    Proxy-->>Client: 401 Return modified authentication header
+    Proxy->>Proxy: 修改 WWW-Authenticate 头，realm 指向本地 /auth/token
+    Proxy-->>Client: 401 返回修改后的认证头
     
-    %% Token Acquisition
-    Client->>Proxy: GET /auth/token?scope=repository:redis:pull
-    Proxy->>+Auth: GET /token?service=registry.docker.io&scope=repository:library/redis:pull
-    Auth-->>-Proxy: 200 Return token
-    Proxy-->>Client: 200 Return original token response
+    %% 令牌获取
+    Client->>Proxy: GET /auth/token?scope=repository:library/cirros:pull
+    Proxy->>+Auth: GET /token?service=registry.docker.io&scope=repository:library/cirros:pull
+    Auth-->>-Proxy: 200 返回令牌
+    Proxy-->>Client: 200 返回原始令牌响应
     
-    %% Image Metadata Request Handling
-    Client->>Proxy: GET /v2/library/redis/manifests/latest
-    Proxy->>+Registry: Forward request (with auth header and Accept header)
-    Registry-->>-Proxy: Return image manifest
-    Proxy-->>Client: Return image manifest (preserving original response headers and status code)
+    %% 镜像摘要请求处理
+    Client->>Proxy: HEAD /v2/library/cirros/manifests/latest
+    Proxy->>+Registry: 转发请求（携带认证头和Accept头）
+    Registry-->>-Proxy: 返回镜像唯一标识
+    Proxy-->>Client: 返回镜像唯一标识（保留原始响应头和状态码）
+
+    %% 镜像元数据请求处理
+    Client->>Proxy: GET /v2/library/cirros/manifests/{docker-content-digest}
+    Proxy->>+Registry: 转发请求（携带认证头和Accept头）
+    Registry-->>-Proxy: 返回镜像元数据
+    Proxy-->>Client: 返回镜像元数据（保留原始响应头和状态码）
+
+    %% 镜像配置和镜像层信息请求处理
+    Client->>Proxy: GET /v2/library/cirros/manifests/{digest}
+    Proxy->>+Registry: 转发请求（携带认证头和Accept头）
+    Registry-->>-Proxy: 返回指定硬件架构的镜像配置和镜像层信息
+    Proxy-->>Client: 返回指定硬件架构的镜像配置和镜像层信息（保留原始响应头和状态码）
+
+    %% 镜像配置详细信息请求处理
+    Client->>Proxy: GET /v2/library/cirros/blobs/{digest}
+    Proxy->>+Registry: 转发请求（携带认证头和Accept头）
+    Registry-->>-Proxy: 返回镜像配置详细信息
+    Proxy-->>Client: 返回镜像配置详细信息（保留原始响应头和状态码）
     
-    %% Binary Data Handling
-    Client->>Proxy: GET /v2/library/redis/blobs/{digest}
-    Proxy->>+Registry: Forward blob request
-    Registry-->>-Proxy: Return blob data
-    Proxy-->>Client: Stream blob data back
+    %% 各镜像层二进制数据请求处理（循环处理每一层）
+    loop 对每个镜像层
+        Client->>Proxy: GET /v2/library/cirros/blobs/{digest}
+        Proxy->>+Registry: 转发 blob 请求
+        Registry-->>-Proxy: 返回 blob 数据
+        Proxy-->>Client: 流式返回 blob 数据
+    end
 ```
 
-### Certificate Handling Process
+### 证书处理流程
 
 ```mermaid
 flowchart LR
-    A[Start Service] --> B{Check Environment Variables}
-    B -->|Exist| C[Use Specified Certificate Path]
-    B -->|Don't Exist| D[Use Default Certificate Path]
-    C --> E[Load Certificate Files]
+    A[启动服务] --> B{检查环境变量}
+    B -->|存在| C[使用指定证书路径]
+    B -->|不存在| D[使用默认证书路径]
+    C --> E[加载证书文件]
     D --> E
-    E --> F{Certificate Type Determination}
-    F -->|ECC| G[Load ECC Private Key]
-    F -->|RSA| H[Load RSA Private Key]
-    F -->|PKCS8| I[Load PKCS8 Private Key]
-    G --> J[Initialize TLS Configuration]
+    E --> F{证书类型判断}
+    F -->|ECC| G[加载ECC私钥]
+    F -->|RSA| H[加载RSA私钥]
+    F -->|PKCS8| I[加载PKCS8私钥]
+    G --> J[初始化TLS配置]
     H --> J
     I --> J
-    J --> K[Start HTTPS Service]
+    J --> K[启动HTTPS服务]
 ```
 
-## Features
+## 功能特性
 
-- **Transparent Proxy**: Fully compatible with Docker Registry API v2
-- **Seamless Integration**: Only requires configuring the mirror source, no change in usage habits
-- **High-Performance Transfer**: Uses streaming processing for response data, supports large image downloads
-- **TLS Encryption**: Built-in HTTPS support, ensuring secure data transmission
-- **Accelerated Official Image Downloads**: Provides more stable connections
-- **Bypassing Network Blockages**: Solves access restriction issues in certain regions
+- **透明代理**：完全兼容 Docker Registry API v2
+- **无缝集成**：仅需配置镜像源，无需更改使用习惯
+- **高性能传输**：采用流式处理响应数据，支持大型镜像下载
+- **TLS 加密**：内置 HTTPS 支持，确保数据传输安全
+- **加速官方镜像下载**：提供更稳定的连接
+- **绕过网络封锁**：解决国内访问限制问题
 
-## Quick Start
+## 快速开始
 
 > [!TIP]
-> Before deployment, please resolve your domain to the target host in advance.
+> 在开始部署前，请提前将域名解析到目标主机。
 
-### One-Click Deployment
+### 一键部署
 
 ```bash
 bash <(curl -Ls https://raw.githubusercontent.com/harrisonwang/docxy/main/install.sh)
 ```
 
 > [!WARNING]
-> Note: ZeroSSL certificate authority requires account registration before issuing certificates. For convenience, the script forces the use of Let's Encrypt as the certificate authority and forces certificate reissuance.
+> 注意：ZeroSSL 证书颁发机构要求注册账户后才能申请证书，为了方便使用，脚本强制使用 Let's Encrypt 作为证书颁发机构，强制重新申请证书。
 
-### Development
+### 开发
 
-1. Clone the repository
+1. 克隆仓库
 
    ```bash
    cd /opt
    git clone https://github.com/harrisonwang/docxy.git
    ```
 
-2. Enter the project directory
+2. 进入项目目录
 
    ```bash
    cd /opt/docxy
    ```
 
-3. Configure certificates (using test.com domain as an example)
+3. 配置证书（以 test.com 域名为例）
 
    ```bash
    export DOCXY_CERT_PATH=/root/.acme.sh/test.com_ecc/fullchain.cer
@@ -185,23 +203,25 @@ bash <(curl -Ls https://raw.githubusercontent.com/harrisonwang/docxy/main/instal
    ```
 
 > [!TIP]
-> Please apply for TLS certificates in advance using acme.sh
+> 请提前使用 acme.sh 申请好 TLS 证书
 
-4. Start the service
+4. 启动服务
 
    ```bash
    cargo run
    ```
 
-5. Build the binary package
+5. 构建二进制包
 
    ```bash
    cargo build --release
    ```
 
-### Docker Client Configuration
+### Docker 客户端使用
 
-Edit the `/etc/docker/daemon.json` configuration file and add the following proxy settings:
+#### 默认方式使用
+
+1. 编辑 `/etc/docker/daemon.json` 配置文件，添加以下代理设置：
 
 ```json
 {
@@ -209,28 +229,54 @@ Edit the `/etc/docker/daemon.json` configuration file and add the following prox
 }
 ```
 
-### Health Check
+2. 执行 `docker pull hello-world` 命令拉取镜像
 
-You can check if the service is running properly by accessing the following endpoint:
+#### 登录方式使用
+
+1. 使用 `docker login test.com` 登录你的 Docker 镜像仓库
+2. 手动编辑 `~/.docker/config.json` 文件，添加以下内容：
+```diff
+{
+	"auths": {
+		"510006.xyz": {
+			"auth": "<base64编码后的用户名密码或Token>"
+-		}
++		},
++		"https://index.docker.io/v1/": {
++			"auth": "<和上面一致即可>"
++		}
++	}
+}
+```
+
+> [!TIP]
+> Windows 11 位于 `%USERPROFILE%\.docker\config.json`
+
+3. 执行 `docker pull hello-world` 命令即可以认证后的方式拉取镜像，从而提升拉取次数
+
+
+### 健康检查
+
+可以通过访问以下端点检查服务是否正常运行：
 
 ```bash
 curl https://test.com/health
 ```
 
-## API Reference
+## API参考
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/health` | GET | Health check interface |
-| `/v2/` | GET | Docker Registry API v2 entry point and authentication challenge |
-| `/auth/token` | GET | Authentication token acquisition interface |
-| `/v2/{namespace}/{image}/{path_type}/{reference}` | GET/HEAD | Image resource access interface, supporting manifests and blobs, etc. |
+| 端点 | 方法 | 描述 |
+|------|------|------|
+| `/health` | GET | 健康检查接口 |
+| `/v2/` | GET | Docker Registry API v2 入口点及认证质询 |
+| `/auth/token` | GET | 认证令牌获取接口 |
+| `/v2/{namespace}/{image}/{path_type}/{reference}` | GET/HEAD | 镜像资源访问接口，支持manifests和blobs等 |
 
-## Other Solutions
+## 其它方案
 
-- [Cloudflare Worker Implementation of Image Proxy](https://voxsay.com/posts/china-docker-registry-proxy-guide/): Use with caution, may lead to Cloudflare account suspension.
-- [Nginx Implementation of Image Proxy](https://voxsay.com/posts/china-docker-registry-proxy-guide/): Only proxies registry-1.docker.io, but still has requests sent to auth.docker.io. Once auth.docker.io is also blocked, it will not function properly.
+- [Cloudflare Worker 实现镜像代理](https://voxsay.com/posts/china-docker-registry-proxy-guide/)：谨慎使用，可能导致 Cloudflare 封号。
+- [Nginx 实现镜像代理](https://voxsay.com/posts/china-docker-registry-proxy-guide/)：仅代理了 registry-1.docker.io，还存在发往 auth.docker.io 的请求，一旦 auth.docker.io 也被封锁，将无法正常使用。
 
-## License
+## 许可证
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+本项目采用 MIT 许可证，查看 [LICENSE](LICENSE) 了解更多信息。
