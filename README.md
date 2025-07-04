@@ -238,7 +238,7 @@ bash <(curl -Ls https://raw.githubusercontent.com/harrisonwang/docxy/main/instal
 ```diff
 {
 	"auths": {
-		"510006.xyz": {
+		"test.com": {
 			"auth": "<base64编码后的用户名密码或Token>"
 -		}
 +		},
