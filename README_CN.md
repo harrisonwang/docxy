@@ -52,9 +52,6 @@ Docker Hub 对镜像拉取实施了严格的速率限制策略，使用代理服
 | **Personal (authenticated)** | **100/小时/账户** |
 | **Unauthenticated users**    | **10/小时/IP**    |
 
-> [!WARNING]
-> 注意：此限制将从 2025 年 4 月 1 日起生效
-
 ## 技术原理
 
 Docxy 实现了完整的 Docker Registry API 代理，仅需添加 Docker 客户端代理配置即可使用。
@@ -220,15 +217,43 @@ bash <(curl -Ls https://raw.githubusercontent.com/harrisonwang/docxy/main/instal
    cargo build --release
    ```
 
-### Docker 客户端配置
+### Docker 客户端使用
 
-编辑 `/etc/docker/daemon.json` 配置文件，添加以下代理设置：
+#### 默认方式使用
+
+1. 编辑 `/etc/docker/daemon.json` 配置文件，添加以下代理设置：
 
 ```json
 {
   "registry-mirrors": ["https://test.com"]
 }
 ```
+
+2. 执行 `docker pull hello-world` 命令拉取镜像
+
+#### 用登录方式使用
+
+1. 使用 `docker login test.com` 登录你的 Docker 镜像仓库
+2. 手动编辑 `~/.docker/config.json` 文件，添加以下内容：
+```diff
+{
+	"auths": {
+		"510006.xyz": {
+			"auth": "<base64编码后的用户名密码或Token>"
+-		}
++		},
++		"https://index.docker.io/v1/": {
++			"auth": "<和上面一致即可>"
++		}
++	}
+}
+```
+
+> [!TIP]
+> Windows 11 位于 `%USERPROFILE%\.docker\config.json`
+
+3. 执行 `docker pull hello-world` 命令即可以认证后的方式拉取镜像
+
 
 ### 健康检查
 
