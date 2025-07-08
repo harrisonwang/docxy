@@ -12,9 +12,7 @@ DOCXY_CERT_PATH=""
 DOCXY_KEY_PATH=""
 HTTP_PORT=80
 HTTPS_PORT=443
-BEHIND_PROXY=false
-HTTPS_ENABLED=true
-HTTP_ENABLED=true # 新增：HTTP是否启用
+DEPLOYMENT_MODE=""
 
 # 检查是否以 root 权限运行
 if [ "$EUID" -ne 0 ]; then
@@ -98,37 +96,66 @@ get_certificate_paths() {
   echo -e "私钥: ${YELLOW}$DOCXY_KEY_PATH${NC}"
 }
 
-# 添加代理配置询问函数
-ask_proxy_configuration() {
-  echo -e "${YELLOW}是否通过Nginx等反向代理访问? (y/n):${NC}"
-  read -r PROXY_OPTION
-  
-  if [[ "$PROXY_OPTION" =~ ^[Yy]$ ]]; then
-    BEHIND_PROXY=true
-    # 在代理模式下禁用HTTPS
-    HTTPS_ENABLED=false
-    
-    # 询问是否使用默认端口
-    echo -e "${YELLOW}是否使用默认HTTP端口 9000? (y/n):${NC}"
-    read -r DEFAULT_PORT
-    
-    if [[ "$DEFAULT_PORT" =~ ^[Yy]$ ]]; then
-      HTTP_PORT=9000
-      echo -e "${GREEN}将使用默认端口: 9000${NC}"
-    else
-      echo -e "${YELLOW}请输入HTTP端口:${NC}"
+# 添加部署模式询问函数
+ask_deployment_mode() {
+  echo -e "${YELLOW}请选择您的部署方式:${NC}"
+  echo "1. [默认] 独立运行模式 (HTTPS，自动申请或提供证书)"
+  echo "2. Nginx 反向代理模式 (您需要手动配置Nginx)"
+  echo "3. 独立运行模式 (仅 HTTP，用于CDN回源)"
+  echo -ne "${YELLOW}请输入选项 [1-3] (默认: 1): ${NC}"
+  read -r DEPLOYMENT_CHOICE
+  DEPLOYMENT_CHOICE=${DEPLOYMENT_CHOICE:-1}
+
+  case "$DEPLOYMENT_CHOICE" in
+    1)
+      DEPLOYMENT_MODE="standalone_https"
+      ;;
+    2)
+      DEPLOYMENT_MODE="nginx"
+      ;;
+    3)
+      DEPLOYMENT_MODE="standalone_http"
+      ;;
+    *)
+      echo -e "${RED}无效的选项，脚本退出。${NC}"
+      exit 1
+      ;;
+  esac
+}
+
+# 设置模式参数
+set_mode_parameters() {
+  case "$DEPLOYMENT_MODE" in
+    "standalone_https")
+      BEHIND_PROXY=false
+      HTTPS_ENABLED=true
+      HTTP_ENABLED=true # HTTP用于重定向
+      HTTP_PORT=80
+      HTTPS_PORT=443
+      echo -e "${GREEN}将直接提供服务，使用标准端口 80/443${NC}"
+      ask_certificate_option
+      ;;
+    "nginx")
+      BEHIND_PROXY=true
+      HTTPS_ENABLED=false # docxy本身不处理https
+      HTTP_ENABLED=true
+      echo -e "${YELLOW}请输入 docxy 后端监听的HTTP端口 (默认: 9000):${NC}"
       read -r HTTP_PORT_INPUT
-      HTTP_PORT=${HTTP_PORT_INPUT}
-      echo -e "${GREEN}将使用自定义端口: ${HTTP_PORT}${NC}"
-    fi
-    
-    echo -e "${GREEN}将在代理模式下运行，HTTP端口: ${HTTP_PORT}${NC}"
-    
-    # 即使在代理模式下也询问证书路径，用于生成Nginx配置
-    ask_certificate_option
-  else
-    echo -e "${GREEN}将直接提供服务，使用标准端口 80/443${NC}"
-  fi
+      HTTP_PORT=${HTTP_PORT_INPUT:-9000}
+      echo -e "${GREEN}docxy 将在代理模式下运行，监听端口: ${HTTP_PORT}${NC}"
+      ask_certificate_option
+      ;;
+    "standalone_http")
+      BEHIND_PROXY=true # 设为true以处理CDN/代理的X-Forwarded-*头
+      HTTPS_ENABLED=false
+      HTTP_ENABLED=true
+      echo -e "${YELLOW}请输入要监听的HTTP端口 (默认: 80):${NC}"
+      read -r HTTP_PORT_INPUT
+      HTTP_PORT=${HTTP_PORT_INPUT:-80}
+      HTTPS_PORT=443 # 保持一个值，即使禁用
+      echo -e "${GREEN}将在独立模式下运行，HTTP端口: ${HTTP_PORT}${NC}"
+      ;;
+  esac
 }
 
 # 修改端口检查函数
@@ -142,7 +169,7 @@ check_ports() {
   fi
   
   # 检查HTTPS端口
-  if netstat -tuln | grep -q ":${HTTPS_PORT} "; then
+  if [ "$DEPLOYMENT_MODE" = "standalone_https" ] && netstat -tuln | grep -q ":${HTTPS_PORT} "; then
     echo -e "${RED}端口 ${HTTPS_PORT} 已被占用，请关闭占用该端口的服务后重试${NC}"
     exit 1
   fi
@@ -309,8 +336,8 @@ start_service() {
 show_instructions() {
   echo -e "\n${GREEN}=== Docker Registry 代理安装完成 ===${NC}"
   
-  if [ "$BEHIND_PROXY" = true ]; then
-    echo -e "\n${YELLOW}Nginx 反向代理配置示例:${NC}"
+  if [ "$DEPLOYMENT_MODE" = "nginx" ]; then
+    echo -e "\n${YELLOW}Nginx 反向代理配置示例 (请将其保存到您的Nginx配置中):${NC}"
     echo -e "server {"
     echo -e "    listen 80;"
     echo -e "    server_name ${DOMAIN};"
@@ -318,10 +345,10 @@ show_instructions() {
     echo -e "}"
     echo -e ""
     echo -e "server {"
-    echo -e "    listen 443 ssl;"
+    echo -e "    listen 443 ssl http2;"
     echo -e "    server_name ${DOMAIN};"
     echo -e ""
-    echo -e "    # SSL 配置"
+    echo -e "    # SSL 配置 (请确保路径正确)"
     echo -e "    ssl_certificate ${DOCXY_CERT_PATH};"
     echo -e "    ssl_certificate_key ${DOCXY_KEY_PATH};"
     echo -e ""
@@ -333,13 +360,22 @@ show_instructions() {
     echo -e "        proxy_set_header X-Forwarded-Proto \$scheme;"
     echo -e "    }"
     echo -e "}"
+    echo -e "\n${YELLOW}配置好 Nginx 后，请运行: nginx -t && systemctl reload nginx${NC}"
   fi
   
   echo -e "\n${YELLOW}使用说明:${NC}"
   echo -e "1. 在 Docker 客户端配置文件中添加以下内容:"
   echo -e "   ${GREEN}编辑 /etc/docker/daemon.json:${NC}"
-  echo -e "   ${YELLOW}{\"registry-mirrors\": [\"https://${DOMAIN}\"]}\n${NC}"
-  echo -e "2. 重启 Docker 服务:"
+  
+  if [ "$DEPLOYMENT_MODE" = "standalone_http" ]; then
+    # 独立HTTP模式
+    echo -e "   ${YELLOW}{\"registry-mirrors\": [\"http://${DOMAIN}:${HTTP_PORT}\"], \"insecure-registries\": [\"${DOMAIN}:${HTTP_PORT}\"]}${NC}"
+  else
+    # standalone_https 和 nginx 模式都通过https访问
+    echo -e "   ${YELLOW}{\"registry-mirrors\": [\"https://${DOMAIN}\"]}${NC}"
+  fi
+  
+  echo -e "\n2. 重启 Docker 服务:"
   echo -e "   ${YELLOW}systemctl restart docker${NC}\n"
   echo -e "3. 服务管理命令:"
   echo -e "   ${YELLOW}启动: systemctl start docxy${NC}"
@@ -348,10 +384,10 @@ show_instructions() {
   echo -e "   ${YELLOW}查看状态: systemctl status docxy${NC}"
   echo -e "   ${YELLOW}查看日志: journalctl -u docxy${NC}\n"
   echo -e "4. 健康检查:"
-  if [ "$BEHIND_PROXY" = true ]; then
-    echo -e "   ${YELLOW}curl https://${DOMAIN}/health${NC}\n"
+  if [ "$DEPLOYMENT_MODE" = "standalone_http" ]; then
+    echo -e "   ${YELLOW}curl http://${DOMAIN}:${HTTP_PORT}/health${NC}\n"
   else
-    echo -e "   ${YELLOW}curl -k https://${DOMAIN}/health${NC}\n"
+    echo -e "   ${YELLOW}curl https://${DOMAIN}/health${NC}\n"
   fi
 }
 
@@ -422,8 +458,6 @@ server {
 EOF
 
   echo -e "${GREEN}Nginx 配置文件已创建: $NGINX_CONF_FILE${NC}"
-  echo -e "${YELLOW}请检查配置并重新加载 Nginx:${NC}"
-  echo -e "  nginx -t && systemctl reload nginx${NC}"
 }
 
 # 主函数
@@ -431,58 +465,38 @@ main() {
   echo -e "${GREEN}=== Docker Registry 代理安装脚本 ===${NC}\n"
   
   get_domain
-  ask_proxy_configuration
+  ask_deployment_mode
+  set_mode_parameters
 
-  if [ "$BEHIND_PROXY" = true ]; then
-    # Nginx代理模式
-    if [ "$USE_EXISTING_CERT" = true ]; then
-      # 使用已有证书
-      get_certificate_paths
-    else
-      # 申请新证书
-      check_dependencies
-      install_acme
-      get_certificate
-    fi
-    
-    # 检查HTTP端口
-    if netstat -tuln | grep -q ":${HTTP_PORT} "; then
-      echo -e "${RED}端口 ${HTTP_PORT} 已被占用，请选择其他端口${NC}"
-      exit 1
-    fi
-    
-    # 下载并配置服务
-    download_docxy
-    create_service
-    copy_default_config
-    
-    # 创建Nginx配置
-    create_nginx_config
-  else
-    # 独立部署模式
-    ask_certificate_option
-    
-    if [ "$USE_EXISTING_CERT" = true ]; then
-      # 使用已有证书的流程
-      get_certificate_paths
-    else
-      # 申请新证书的流程
-      check_dependencies
-      install_acme
-      get_certificate
-    fi
-    
-    # 检查80和443端口
-    check_ports
-    
-    # 下载并配置服务
-    download_docxy
-    create_service
-    copy_default_config
+  # 检查依赖 (仅在需要申请证书时)
+  if ( [ "$DEPLOYMENT_MODE" = "standalone_https" ] || [ "$DEPLOYMENT_MODE" = "nginx" ] ) && [ "$USE_EXISTING_CERT" = false ]; then
+    check_dependencies
+    install_acme
   fi
-  
-  # 启动服务
+
+  # 获取证书
+  if [ "$DEPLOYMENT_MODE" = "standalone_https" ] || [ "$DEPLOYMENT_MODE" = "nginx" ]; then
+    if [ "$USE_EXISTING_CERT" = true ]; then
+      get_certificate_paths
+    else
+      get_certificate
+    fi
+  fi
+
+  # 端口检查
+  check_ports
+
+  # 下载、配置和启动服务
+  download_docxy
+  create_service
+  copy_default_config
   start_service
+
+  # 如果是Nginx模式，创建配置文件
+  if [ "$DEPLOYMENT_MODE" = "nginx" ]; then
+    create_nginx_config
+  fi
+
   show_instructions
 }
 
