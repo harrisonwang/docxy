@@ -1,5 +1,7 @@
 # Docxy
 
+![og-image](og-image.png)
+
 [![English](https://img.shields.io/badge/English-Click-orange)](README_EN.md)
 [![简体中文](https://img.shields.io/badge/简体中文-点击查看-blue)](README.md)
 [![Русский](https://img.shields.io/badge/Русский-Нажмите-orange)](README_RU.md)
@@ -10,272 +12,208 @@
 [![Rust](https://img.shields.io/badge/rust-1.75%2B-blue.svg)](https://www.rust-lang.org)
 [![Docker](https://img.shields.io/badge/docker-28%2B-orange.svg)](https://www.docker.com)
 
-Servicio ligero de proxy de imágenes Docker que resuelve problemas de acceso restringido a Docker Hub en ciertas regiones.
+Un servicio ligero de proxy de imágenes Docker, diseñado para resolver el problema del acceso restringido a Docker Hub en China continental.
 
-## Antecedentes
+> 📢 **Tutorial del Blog:** [**¡Diga adiós a los tiempos de espera de conexión de Docker Hub! Construya su acelerador de imágenes exclusivo con Docxy**](https://voxsay.com/posts/docxy-docker-proxy-tutorial-for-china/)
 
-### Introducción a los Repositorios de Imágenes Docker
+## Características Principales
 
-Los repositorios de imágenes Docker son servicios para almacenar y distribuir imágenes de contenedores Docker, proporcionando almacenamiento centralizado para aplicaciones containerizadas. Estos repositorios permiten a los desarrolladores enviar, almacenar, gestionar y descargar imágenes de contenedores, simplificando el proceso de distribución e implementación de aplicaciones.
+*   🚀 **Despliegue con un Clic**: Proporciona un script de automatización `install.sh` para la configuración del entorno, la aplicación de certificados (Let's Encrypt) y el despliegue del servicio con un solo clic, sin necesidad de intervención manual.
 
-### Tipos de Repositorios de Imágenes
+*   📦 **Múltiples Modos de Despliegue**:
+    *   **Autónomo**: Funcionalidad TLS incorporada, proporciona directamente el servicio HTTPS.
+    *   **Proxy Nginx**: Puede trabajar con Nginx como un servicio de backend.
+    *   **Origen CDN**: Soporta el modo HTTP, conveniente para la integración con CDN.
 
-- **Repositorio Oficial de Imágenes**: Docker Hub, el repositorio oficial mantenido por Docker Inc.
-- **Repositorios Independientes de Terceros**: Como AWS ECR, Google GCR, Alibaba Cloud ACR, etc., utilizados para publicar y compartir imágenes propias
-- **Servicios de Aceleración de Imágenes**: Como el espejo Tsinghua TUNA, el acelerador de imágenes de Alibaba Cloud, etc., que proporcionan servicios de aceleración de imágenes para Docker Hub
+*   ⚡ **Inicio de Sesión para Mayor Tasa de Extracción**: Permite a los usuarios autenticarse con sus cuentas personales de Docker Hub a través de `docker login`, aumentando el límite de tasa de extracción de usuarios anónimos (10 extracciones/hora/IP) a usuarios autenticados (100 extracciones/hora/cuenta).
 
-> [!NOTE]
-> Debido a restricciones de red, el acceso directo a Docker Hub es difícil en algunas regiones, y la mayoría de los servicios de aceleración de imágenes también han sido discontinuados.
+*   💎 **Proxy Completamente Transparente**: Totalmente compatible con la API de Docker Registry V2. Los clientes solo necesitan modificar la dirección de la fuente del espejo, sin curva de aprendizaje adicional ni cambios en los hábitos de uso.
 
-### Por qué se Necesitan Proxies de Imágenes
+*   🛡️ **Alto Rendimiento y Seguridad**: Construido con **Rust** y **Actix Web**, ofreciendo un excelente rendimiento y seguridad de memoria. Utiliza la transmisión por secuencias para la transferencia de imágenes, con una sobrecarga mínima.
 
-Los proxies de imágenes son servicios intermedios que conectan los clientes Docker con Docker Hub. No almacenan imágenes reales, solo reenvían solicitudes, resolviendo eficazmente:
+## Instalación y Despliegue
 
-- Problemas de restricciones de acceso a la red
-- Mejora de la velocidad de descarga de imágenes
-
-Docxy es un servicio de proxy de imágenes que tiene como objetivo eludir los bloqueos de red y acelerar las descargas de imágenes a través de un proxy autohospedado.
-
-### Limitaciones de Uso de los Proxies de Imágenes
-
-Docker Hub implementa políticas estrictas de limitación de velocidad para la descarga de imágenes. Al utilizar servicios de proxy, existen las siguientes limitaciones:
-
-- Si no estás autenticado, cada dirección IP está limitada a 10 descargas de imágenes por hora
-- Si estás autenticado con una cuenta personal, puedes descargar 100 imágenes por hora
-- Para otros tipos de cuentas, consulta la siguiente tabla:
-
-| Tipo de Usuario              | Límite de Velocidad de Descarga |
-| ---------------------------- | ------------------------------- |
-| Business (autenticado)       | Sin límite                      |
-| Team (autenticado)           | Sin límite                      |
-| Pro (autenticado)            | Sin límite                      |
-| **Personal (autenticado)**   | **100/hora/cuenta**             |
-| **Usuarios no autenticados** | **10/hora/IP**                  |
-
-## Principios Técnicos
-
-Docxy implementa un proxy completo de la API de Docker Registry, que solo requiere agregar la configuración del proxy del cliente Docker para su uso.
-
-### Arquitectura del Sistema
-
-```mermaid
-graph TD
-    Client[Cliente Docker] -->|Enviar Solicitud| HttpServer[Servidor HTTP]
-    
-    subgraph "Servicio de Proxy de Imágenes Docker"
-        HttpServer -->|Enrutar Solicitud| RouterHandler[Manejador de Rutas]
-        
-        RouterHandler -->|/v2/| ChallengeHandler[Manejador de Desafíos<br>proxy_challenge]
-        RouterHandler -->|/auth/token| TokenHandler[Manejador de Tokens<br>get_token]
-        RouterHandler -->|/v2/namespace/image/path_type| RequestHandler[Manejador de Solicitudes<br>handle_request]
-        RouterHandler -->|/health| HealthCheck[Verificación de Salud<br>health_check]
-        
-        ChallengeHandler --> HttpClient
-        TokenHandler --> HttpClient
-        RequestHandler --> HttpClient
-        
-    end
-    
-    HttpClient[Cliente HTTP<br>reqwest]
-    
-    HttpClient -->|Solicitud de Autenticación| DockerAuth[Docker Auth<br>auth.docker.io]
-    HttpClient -->|Solicitud de Imagen| DockerRegistry[Docker Registry<br>registry-1.docker.io]
-```
-
-### Flujo de Solicitudes
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor Client as Cliente Docker
-    participant Proxy as Docxy Proxy
-    participant Registry as Docker Registry
-    participant Auth as Servicio de Autenticación Docker
-    
-    %% Procesamiento de Solicitud de Desafío
-    Client->>Proxy: GET /v2/
-    Proxy->>+Registry: GET /v2/
-    Registry-->>-Proxy: 401 Unauthorized (WWW-Authenticate)
-    Proxy->>Proxy: Modificar encabezado WWW-Authenticate, realm apunta a /auth/token local
-    Proxy-->>Client: 401 Devolver encabezado de autenticación modificado
-    
-    %% Obtención de Token
-    Client->>Proxy: GET /auth/token?scope=repository:library/cirros:pull
-    Proxy->>+Auth: GET /token?service=registry.docker.io&scope=repository:library/cirros:pull
-    Auth-->>-Proxy: 200 Devolver token
-    Proxy-->>Client: 200 Devolver respuesta original del token
-    
-    %% Procesamiento de Solicitud de Digest de Imagen
-    Client->>Proxy: HEAD /v2/library/cirros/manifests/latest
-    Proxy->>+Registry: Reenviar solicitud (con encabezado de autenticación y encabezado Accept)
-    Registry-->>-Proxy: Devolver identificador único de imagen
-    Proxy-->>Client: Devolver identificador único de imagen (preservar encabezados de respuesta originales y código de estado)
-
-    %% Procesamiento de Solicitud de Metadatos de Imagen
-    Client->>Proxy: GET /v2/library/cirros/manifests/{docker-content-digest}
-    Proxy->>+Registry: Reenviar solicitud (con encabezado de autenticación y encabezado Accept)
-    Registry-->>-Proxy: Devolver metadatos de imagen
-    Proxy-->>Client: Devolver metadatos de imagen (preservar encabezados de respuesta originales y código de estado)
-
-    %% Procesamiento de Solicitud de Configuración de Imagen e Información de Capas
-    Client->>Proxy: GET /v2/library/cirros/manifests/{digest}
-    Proxy->>+Registry: Reenviar solicitud (con encabezado de autenticación y encabezado Accept)
-    Registry-->>-Proxy: Devolver configuración de imagen e información de capas para arquitectura especificada
-    Proxy-->>Client: Devolver configuración de imagen e información de capas para arquitectura especificada (preservar encabezados de respuesta originales y código de estado)
-
-    %% Procesamiento de Solicitud de Detalles de Configuración de Imagen
-    Client->>Proxy: GET /v2/library/cirros/blobs/{digest}
-    Proxy->>+Registry: Reenviar solicitud (con encabezado de autenticación y encabezado Accept)
-    Registry-->>-Proxy: Devolver detalles de configuración de imagen
-    Proxy-->>Client: Devolver detalles de configuración de imagen (preservar encabezados de respuesta originales y código de estado)
-    
-    %% Procesamiento de Solicitud de Datos Binarios de Capas de Imagen (bucle para cada capa)
-    loop Para cada capa de imagen
-        Client->>Proxy: GET /v2/library/cirros/blobs/{digest}
-        Proxy->>+Registry: Reenviar solicitud de blob
-        Registry-->>-Proxy: Devolver datos de blob
-        Proxy-->>Client: Transmitir datos de blob de vuelta
-    end
-```
-
-### Proceso de Manejo de Certificados
-
-```mermaid
-flowchart LR
-    A[Iniciar Servicio] --> B{Verificar Variables de Entorno}
-    B -->|Existen| C[Usar Ruta de Certificado Especificada]
-    B -->|No Existen| D[Usar Ruta de Certificado Predeterminada]
-    C --> E[Cargar Archivos de Certificado]
-    D --> E
-    E --> F{Determinación del Tipo de Certificado}
-    F -->|ECC| G[Cargar Clave Privada ECC]
-    F -->|RSA| H[Cargar Clave Privada RSA]
-    F -->|PKCS8| I[Cargar Clave Privada PKCS8]
-    G --> J[Inicializar Configuración TLS]
-    H --> J
-    I --> J
-    J --> K[Iniciar Servicio HTTPS]
-```
-
-## Características
-
-- **Proxy Transparente**: Totalmente compatible con Docker Registry API v2
-- **Integración Perfecta**: Solo requiere configurar la fuente de imagen, sin cambiar hábitos de uso
-- **Transferencia de Alto Rendimiento**: Utiliza procesamiento de streaming para datos de respuesta, soporta descargas de imágenes grandes
-- **Encriptación TLS**: Soporte HTTPS integrado, garantizando transferencia segura de datos
-- **Descargas Aceleradas de Imágenes Oficiales**: Proporciona conexiones más estables
-- **Evasión de Bloqueos de Red**: Resuelve problemas de restricción de acceso en ciertas regiones
-
-## Inicio Rápido
-
-> [!TIP]
-> Antes del despliegue, por favor resuelve tu dominio al host objetivo con anticipación.
-
-### Despliegue con Un Clic
+Proporcionamos un script de instalación con un solo clic para simplificar el proceso de despliegue. Antes de comenzar, asegúrese de que su nombre de dominio esté resuelto al host de destino.
 
 ```bash
 bash <(curl -Ls https://raw.githubusercontent.com/harrisonwang/docxy/main/install.sh)
 ```
 
-> [!WARNING]
-> Nota: La autoridad de certificación ZeroSSL requiere registro de cuenta antes de emitir certificados. Para mayor comodidad, el script fuerza el uso de Let's Encrypt como autoridad de certificación y fuerza la reemisión del certificado.
+El script le guiará a través de la instalación y ofrece los siguientes tres modos de despliegue:
 
-### Desarrollo
+---
 
-1. Clonar el repositorio
+### Modo Uno: Autónomo (HTTPS)
 
-   ```bash
-   cd /opt
-   git clone https://github.com/harrisonwang/docxy.git
-   ```
+Este es el modo más simple y recomendado. Docxy escuchará directamente en los puertos 80 y 443, proporcionando un servicio de proxy HTTPS completo.
 
-2. Entrar al directorio del proyecto
+**Características:**
+- No necesita configuración adicional del servidor web.
+- Maneja automáticamente la redirección de HTTP a HTTPS.
+- Opción de solicitar automáticamente certificados Let's Encrypt o usar sus propios certificados.
 
-   ```bash
-   cd /opt/docxy
-   ```
+**Proceso de Instalación:**
+1.  Ejecute el script de instalación con un solo clic.
+2.  Cuando se le solicite la selección de modo, ingrese `1` o simplemente presione Enter.
+3.  Siga las indicaciones para ingresar su nombre de dominio y elija el método de manejo de certificados.
+4.  El script completará automáticamente todas las configuraciones e iniciará el servicio.
 
-3. Configurar certificados (usando el dominio test.com como ejemplo)
+---
 
-   ```bash
-   export DOCXY_CERT_PATH=/root/.acme.sh/test.com_ecc/fullchain.cer
-   export DOCXY_KEY_PATH=/root/.acme.sh/test.com_ecc/test.com.key
-   ```
+<details>
+<summary>Modo Dos: Proxy Inverso Nginx (Avanzado)</summary>
 
-> [!TIP]
-> Por favor solicita certificados TLS con anticipación usando acme.sh
+### Modo Dos: Proxy Inverso Nginx
 
-4. Iniciar el servicio
+Este modo es adecuado si ya tiene Nginx y desea administrar los servicios web de forma centralizada a través de él.
 
-   ```bash
-   cargo run
-   ```
+**Características:**
+- Nginx maneja el cifrado HTTPS y la gestión de certificados, con Docxy ejecutándose como un backend HTTP simple.
+- Docxy se ejecuta como un servicio HTTP de backend en un puerto especificado (por ejemplo, 9000).
+- Conveniente para la integración con otros servicios.
 
-5. Construir el paquete binario
+**Proceso de Instalación:**
+1.  Ejecute el script de instalación con un solo clic.
+2.  Cuando se le solicite la selección de modo, ingrese `2`.
+3.  Siga las indicaciones para ingresar su nombre de dominio, el puerto de escucha del backend de Docxy y la información del certificado.
+4.  El script generará automáticamente un archivo de configuración de Nginx de ejemplo para usted. Deberá agregarlo manualmente a su configuración de Nginx y recargar el servicio de Nginx.
 
-   ```bash
-   cargo build --release
-   ```
+</details>
 
-### Uso del Cliente Docker
+---
 
-#### Uso Predeterminado
+<details>
+<summary>Modo Tres: Origen CDN (HTTP) (Avanzado)</summary>
 
-1. Edita el archivo de configuración `/etc/docker/daemon.json` y agrega la siguiente configuración de proxy:
+### Modo Tres: Origen CDN (HTTP)
 
-```json
-{
-  "registry-mirrors": ["https://test.com"]
-}
-```
+Este modo es adecuado si desea utilizar Docxy como origen para una CDN para lograr una mejor aceleración global.
 
-2. Ejecuta el comando `docker pull hello-world` para descargar imágenes
+**Características:**
+- Docxy solo escucha en puertos HTTP.
+- El proveedor de CDN maneja las solicitudes HTTPS y los certificados.
+- Docxy confía y procesa los encabezados `X-Forwarded-*` para identificar correctamente la IP del cliente y el protocolo.
 
-#### Uso con Inicio de Sesión
+**Proceso de Instalación:**
+1.  Ejecute el script de instalación con un solo clic.
+2.  Cuando se le solicite la selección de modo, ingrese `3`.
+3.  Siga las indicaciones para ingresar el puerto HTTP en el que Docxy debe escuchar.
+4.  Configure su servicio CDN para que apunte su origen a la dirección y puerto del servicio Docxy.
 
-1. Usa `docker login test.com` para iniciar sesión en tu repositorio de imágenes Docker
-2. Edita manualmente el archivo `~/.docker/config.json` y agrega el siguiente contenido:
-```diff
-{
-	"auths": {
-		"test.com": {
-			"auth": "<nombre de usuario:contraseña o Token codificado en base64>"
--		}
-+		},
-+		"https://index.docker.io/v1/": {
-+			"auth": "<igual que el anterior>"
-+		}
-+	}
-}
-```
+</details>
 
-> [!TIP]
-> En Windows 11, el archivo está ubicado en `%USERPROFILE%\.docker\config.json`
 
-3. Ejecuta el comando `docker pull hello-world` para descargar imágenes con autenticación, aumentando así los límites de descarga
+## Uso del Cliente Docker
 
-### Verificación de Salud
+Configure su cliente Docker para usar su servicio de proxy.
 
-Puedes verificar si el servicio está funcionando correctamente accediendo al siguiente endpoint:
+### Método Uno: Uso Anónimo (Configuración Básica)
 
-```bash
-curl https://test.com/health
-```
+Esta es la configuración básica, que apunta las solicitudes predeterminadas de Docker a su servicio de proxy.
 
-## Referencia de API
+1.  **Configurar el Demonio Docker**
 
-| Endpoint | Método | Descripción |
-|----------|--------|-------------|
-| `/health` | GET | Interfaz de verificación de salud |
-| `/v2/` | GET | Punto de entrada de Docker Registry API v2 y desafío de autenticación |
-| `/auth/token` | GET | Interfaz de obtención de token de autenticación |
-| `/v2/{namespace}/{image}/{path_type}/{reference}` | GET/HEAD | Interfaz de acceso a recursos de imagen, soportando manifests y blobs, etc. |
+    Edite el archivo `/etc/docker/daemon.json` (créelo si no existe) y agregue el siguiente contenido. Reemplace `your-domain.com` con su nombre de dominio.
 
-## Otras Soluciones
+    ```json
+    {
+      "registry-mirrors": ["https://your-domain.com"]
+    }
+    ```
 
-- [Implementación de Proxy de Imágenes con Cloudflare Worker](https://voxsay.com/posts/china-docker-registry-proxy-guide/): Usar con precaución, puede llevar a la suspensión de la cuenta de Cloudflare.
-- [Implementación de Proxy de Imágenes con Nginx](https://voxsay.com/posts/china-docker-registry-proxy-guide/): Solo hace proxy a registry-1.docker.io, pero aún tiene solicitudes enviadas a auth.docker.io. Una vez que auth.docker.io también sea bloqueado, no funcionará correctamente.
+2.  **Reiniciar el Servicio Docker**
+
+    ```bash
+    sudo systemctl restart docker
+    ```
+    Ahora, `docker pull` extraerá imágenes a través de su proxy.
+
+<details>
+<summary>Método Dos: Uso con Inicio de Sesión (Mayor Tasa de Extracción)</summary>
+
+Este método le permite obtener una mayor tasa de extracción de imágenes iniciando sesión con su cuenta de Docker Hub, además del uso anónimo.
+
+1.  **Completar la Configuración Básica**
+
+    Asegúrese de haber completado todos los pasos del **Método Uno**.
+
+2.  **Iniciar Sesión en el Servicio de Proxy**
+
+    Use el comando `docker login` e ingrese su nombre de usuario y contraseña de Docker Hub.
+
+    ```bash
+    docker login your-domain.com
+    ```
+
+3.  **Sincronizar la Información de Autenticación**
+
+    Después de iniciar sesión correctamente, debe editar manualmente el archivo `~/.docker/config.json`. Copie la información `auth` generada para `your-domain.com` y péguela para `https://index.docker.io/v1/`.
+
+    Antes de la modificación:
+    ```json
+    {
+        "auths": {
+            "your-domain.com": {
+                "auth": "aBcDeFgHiJkLmNoPqRsTuVwXyZ..."
+            }
+        }
+    }
+    ```
+
+    Después de la modificación:
+    ```json
+    {
+        "auths": {
+            "your-domain.com": {
+                "auth": "aBcDeFgHiJkLmNoPqRsTuVwXyZ..."
+            },
+            "https://index.docker.io/v1/": {
+                "auth": "aBcDeFgHiJkLmNoPqRsTuVwXyZ..."
+            }
+        }
+    }
+    ```
+    Después de guardar el archivo, sus solicitudes `docker pull` se enviarán como un usuario autenticado, disfrutando así de límites de tasa más altos.
+
+</details>
+
+## Desarrollo
+
+> [!NOTE]
+> Para obtener información técnica detallada, arquitectura del sistema y principios de implementación, consulte el [**Documento de Arquitectura Técnica y Principios**](docs/ARCHITECTURE.md).
+
+1.  **Clonar Repositorio**
+    ```bash
+    git clone https://github.com/harrisonwang/docxy.git
+    cd docxy
+    ```
+
+2.  **Modificar Archivo de Configuración**
+    Abra `config/default.toml` y modifique la sección `[server]` para asegurarse de que el servicio HTTP esté habilitado y el servicio HTTPS esté deshabilitado. Puede establecer el puerto en 8080 para evitar el uso de puertos privilegiados en el entorno de desarrollo.
+
+    ```toml
+    # config/default.toml
+
+    [server]
+    http_port = 8080      # Usar puerto no privilegiado
+    https_port = 8443
+    http_enabled = true   # Habilitar HTTP
+    https_enabled = false # Deshabilitar HTTPS
+    behind_proxy = true
+    ```
+
+3.  **Ejecutar Proyecto**
+    Ahora, puede ejecutar el proyecto directamente con `cargo`.
+    ```bash
+    cargo run
+    ```
+    El servicio se iniciará y escuchará en `http://0.0.0.0:8080`.
+
+4.  **Construir Versión de Lanzamiento**
+    ```bash
+    cargo build --release
+    ```
 
 ## Licencia
 
-Este proyecto está licenciado bajo la Licencia MIT - ver el archivo [LICENSE](LICENSE) para más detalles.
+Este proyecto está bajo la licencia MIT. Consulte [LICENSE](LICENSE) para obtener más información.
