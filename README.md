@@ -1,5 +1,7 @@
 # Docxy
 
+![og-image](og-image.png)
+
 [![English](https://img.shields.io/badge/English-Click-orange)](README_EN.md)
 [![简体中文](https://img.shields.io/badge/简体中文-点击查看-blue)](README.md)
 [![Русский](https://img.shields.io/badge/Русский-Нажмите-orange)](README_RU.md)
@@ -10,272 +12,207 @@
 [![Rust](https://img.shields.io/badge/rust-1.75%2B-blue.svg)](https://www.rust-lang.org)
 [![Docker](https://img.shields.io/badge/docker-28%2B-orange.svg)](https://www.docker.com)
 
-轻量级 Docker 镜像代理服务，解决国内访问 Docker Hub 受限问题。
+轻量级 Docker 镜像代理服务，旨在解决国内访问 Docker Hub 受限问题。
 
-## 背景
+> 📢 **使用教程:** [**跟 Docker Hub 连接超时说拜拜！用 Docxy 自建专属镜像加速器**](https://voxsay.com/posts/docxy-docker-proxy-tutorial-for-china/)
 
-### Docker 镜像仓库简介
+## 核心特性
 
-Docker 镜像仓库是存储和分发 Docker 容器镜像的服务，为容器化应用提供中心化存储。这些仓库允许开发者推送、存储、管理和拉取容器镜像，简化了应用的分发和部署流程。
+*   🚀 **一键部署**: 提供 `install.sh` 自动化脚本，可一键完成环境配置、证书申请 (Let's Encrypt)、服务部署，无需手动干预。
 
-### 镜像仓库类型
+*   📦 **多种部署模式**:
+    *   **独立运行**: 内置 TLS 功能，直接对外提供 HTTPS 服务。
+    *   **Nginx 代理**: 可配合 Nginx 作为后端服务运行。
+    *   **CDN 回源**: 支持 HTTP 模式，方便接入 CDN。
 
-- **官方镜像仓库**：Docker Hub，由 Docker 公司维护的官方仓库
-- **第三方独立镜像仓库**：如 AWS ECR、Google GCR、阿里云 ACR 等，用于发布和共享自有镜像
-- **镜像加速服务**：如清华 TUNA 镜像站、阿里云镜像加速器等，提供 Docker Hub 的镜像加速服务
+*   ⚡ **支持登录提升速率**: 允许用户通过 `docker login` 使用个人账户认证，将匿名用户的拉取速率限制（10次/小时/IP）提升至认证用户的（100次/小时/账户）。
 
-> [!NOTE]
-> 受网络限制影响，国内直接访问 Docker Hub 困难，多数镜像加速服务也已停止服务。
+*   💎 **完全透明的代理**: 完美兼容 Docker Registry V2 API，客户端仅需修改镜像源地址，无额外学习成本和使用习惯的改变。
 
-### 为什么需要镜像代理
+*   🛡️ **高性能与安全**: 基于 **Rust** 和 **Actix Web** 构建，性能卓越、内存安全。采用流式传输处理镜像，开销极小。
 
-镜像代理是连接 Docker 客户端与 Docker Hub 的中间层服务，不存储实际镜像，仅转发请求，有效解决：
+## 安装与部署
 
-- 网络访问限制问题
-- 提升镜像下载速度
-
-Docxy 就是这样一个镜像代理服务，目标是通过自建镜像代理，绕过网络封锁并加速镜像下载。
-
-### 镜像代理的使用限制
-
-Docker Hub 对镜像拉取实施了严格的速率限制策略，使用代理服务时，存在以下限制:
-
-- 如果未登录，每个 IP 地址每小时仅允许拉取 10 次镜像
-- 如果使用个人账户登录，每小时可以拉取 100 次镜像
-- 其他类型账户的具体限制请参考下表：
-
-| 用户类型                     | pull 速率限制     |
-| ---------------------------- | ----------------- |
-| Business (authenticated)     | 无限制            |
-| Team (authenticated)         | 无限制            |
-| Pro (authenticated)          | 无限制            |
-| **Personal (authenticated)** | **100/小时/账户** |
-| **Unauthenticated users**    | **10/小时/IP**    |
-
-## 技术原理
-
-Docxy 实现了完整的 Docker Registry API 代理，仅需添加 Docker 客户端代理配置即可使用。
-
-### 系统架构
-
-```mermaid
-graph TD
-    Client[Docker 客户端] -->|发送请求| HttpServer[HTTP 服务器]
-    
-    subgraph "Docker 镜像代理服务"
-        HttpServer -->|路由请求| RouterHandler[路由处理器]
-        
-        RouterHandler -->|/v2/| ChallengeHandler[质询处理器<br>proxy_challenge]
-        RouterHandler -->|/auth/token| TokenHandler[令牌处理器<br>get_token]
-        RouterHandler -->|/v2/namespace/image/path_type| RequestHandler[请求处理器<br>handle_request]
-        RouterHandler -->|/health| HealthCheck[健康检查<br>health_check]
-        
-        ChallengeHandler --> HttpClient
-        TokenHandler --> HttpClient
-        RequestHandler --> HttpClient
-        
-    end
-    
-    HttpClient[HTTP 客户端<br>reqwest]
-    
-    HttpClient -->|认证请求| DockerAuth[Docker Auth<br>auth.docker.io]
-    HttpClient -->|镜像请求| DockerRegistry[Docker Registry<br>registry-1.docker.io]
-```
-
-### 请求流程
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor Client as Docker 客户端
-    participant Proxy as Docxy Proxy
-    participant Registry as Docker Registry
-    participant Auth as Docker Auth Service
-    
-    %% 质询请求处理
-    Client->>Proxy: GET /v2/
-    Proxy->>+Registry: GET /v2/
-    Registry-->>-Proxy: 401 Unauthorized (WWW-Authenticate)
-    Proxy->>Proxy: 修改 WWW-Authenticate 头，realm 指向本地 /auth/token
-    Proxy-->>Client: 401 返回修改后的认证头
-    
-    %% 令牌获取
-    Client->>Proxy: GET /auth/token?scope=repository:library/cirros:pull
-    Proxy->>+Auth: GET /token?service=registry.docker.io&scope=repository:library/cirros:pull
-    Auth-->>-Proxy: 200 返回令牌
-    Proxy-->>Client: 200 返回原始令牌响应
-    
-    %% 镜像摘要请求处理
-    Client->>Proxy: HEAD /v2/library/cirros/manifests/latest
-    Proxy->>+Registry: 转发请求（携带认证头和Accept头）
-    Registry-->>-Proxy: 返回镜像唯一标识
-    Proxy-->>Client: 返回镜像唯一标识（保留原始响应头和状态码）
-
-    %% 镜像元数据请求处理
-    Client->>Proxy: GET /v2/library/cirros/manifests/{docker-content-digest}
-    Proxy->>+Registry: 转发请求（携带认证头和Accept头）
-    Registry-->>-Proxy: 返回镜像元数据
-    Proxy-->>Client: 返回镜像元数据（保留原始响应头和状态码）
-
-    %% 镜像配置和镜像层信息请求处理
-    Client->>Proxy: GET /v2/library/cirros/manifests/{digest}
-    Proxy->>+Registry: 转发请求（携带认证头和Accept头）
-    Registry-->>-Proxy: 返回指定硬件架构的镜像配置和镜像层信息
-    Proxy-->>Client: 返回指定硬件架构的镜像配置和镜像层信息（保留原始响应头和状态码）
-
-    %% 镜像配置详细信息请求处理
-    Client->>Proxy: GET /v2/library/cirros/blobs/{digest}
-    Proxy->>+Registry: 转发请求（携带认证头和Accept头）
-    Registry-->>-Proxy: 返回镜像配置详细信息
-    Proxy-->>Client: 返回镜像配置详细信息（保留原始响应头和状态码）
-    
-    %% 各镜像层二进制数据请求处理（循环处理每一层）
-    loop 对每个镜像层
-        Client->>Proxy: GET /v2/library/cirros/blobs/{digest}
-        Proxy->>+Registry: 转发 blob 请求
-        Registry-->>-Proxy: 返回 blob 数据
-        Proxy-->>Client: 流式返回 blob 数据
-    end
-```
-
-### 证书处理流程
-
-```mermaid
-flowchart LR
-    A[启动服务] --> B{检查环境变量}
-    B -->|存在| C[使用指定证书路径]
-    B -->|不存在| D[使用默认证书路径]
-    C --> E[加载证书文件]
-    D --> E
-    E --> F{证书类型判断}
-    F -->|ECC| G[加载ECC私钥]
-    F -->|RSA| H[加载RSA私钥]
-    F -->|PKCS8| I[加载PKCS8私钥]
-    G --> J[初始化TLS配置]
-    H --> J
-    I --> J
-    J --> K[启动HTTPS服务]
-```
-
-## 功能特性
-
-- **透明代理**：完全兼容 Docker Registry API v2
-- **无缝集成**：仅需配置镜像源，无需更改使用习惯
-- **高性能传输**：采用流式处理响应数据，支持大型镜像下载
-- **TLS 加密**：内置 HTTPS 支持，确保数据传输安全
-- **加速官方镜像下载**：提供更稳定的连接
-- **绕过网络封锁**：解决国内访问限制问题
-
-## 快速开始
-
-> [!TIP]
-> 在开始部署前，请提前将域名解析到目标主机。
-
-### 一键部署
+我们提供了一键安装脚本来简化部署流程，在开始前，请提前将您的域名解析到目标主机。
 
 ```bash
 bash <(curl -Ls https://raw.githubusercontent.com/harrisonwang/docxy/main/install.sh)
 ```
 
-> [!WARNING]
-> 注意：ZeroSSL 证书颁发机构要求注册账户后才能申请证书，为了方便使用，脚本强制使用 Let's Encrypt 作为证书颁发机构，强制重新申请证书。
+脚本将引导您完成安装，并提供以下三种部署模式：
 
-### 开发
+---
 
-1. 克隆仓库
+### 模式一：独立运行 (HTTPS)
 
-   ```bash
-   cd /opt
-   git clone https://github.com/harrisonwang/docxy.git
-   ```
+这是最简单、最推荐的模式。Docxy 将直接监听 80 和 443 端口，对外提供完整的 HTTPS 代理服务。
 
-2. 进入项目目录
+**特点:**
+- 无需额外配置 Web 服务器。
+- 自动处理 HTTP 到 HTTPS 的重定向。
+- 可选择自动申请 Let's Encrypt 证书或使用您自己的证书。
 
-   ```bash
-   cd /opt/docxy
-   ```
+**安装流程:**
+1.  运行一键安装脚本。
+2.  在模式选择时，输入 `1` 或直接回车。
+3.  根据提示输入您的域名，并选择证书处理方式。
+4.  脚本将自动完成所有配置并启动服务。
 
-3. 配置证书（以 test.com 域名为例）
+---
 
-   ```bash
-   export DOCXY_CERT_PATH=/root/.acme.sh/test.com_ecc/fullchain.cer
-   export DOCXY_KEY_PATH=/root/.acme.sh/test.com_ecc/test.com.key
-   ```
+<details>
+<summary>模式二：Nginx 反向代理 (高级)</summary>
 
-> [!TIP]
-> 请提前使用 acme.sh 申请好 TLS 证书
+### 模式二：Nginx 反向代理
 
-4. 启动服务
+此模式适用于您已经拥有并希望通过 Nginx 统一管理 Web 服务的场景。
 
-   ```bash
-   cargo run
-   ```
+**特点:**
+- 由 Nginx 统一处理 HTTPS 加密和证书管理，Docxy 在后端以普通 HTTP 模式运行。
+- Docxy 作为后端 HTTP 服务运行在一个指定端口上 (如: 9000)。
+- 方便与其他服务集成。
 
-5. 构建二进制包
+**安装流程:**
+1.  运行一键安装脚本。
+2.  在模式选择时，输入 `2`。
+3.  根据提示输入您的域名、Docxy 后端监听端口以及证书信息。
+4.  脚本会自动为您生成一份 Nginx 配置文件示例，您需要手动将其添加到您的 Nginx 配置中，并重载 Nginx 服务。
 
-   ```bash
-   cargo build --release
-   ```
+</details>
 
-### Docker 客户端使用
+---
 
-#### 默认方式使用
+<details>
+<summary>模式三：CDN 回源 (HTTP) (高级)</summary>
 
-1. 编辑 `/etc/docker/daemon.json` 配置文件，添加以下代理设置：
+### 模式三：CDN 回源 (HTTP)
 
-```json
-{
-  "registry-mirrors": ["https://test.com"]
-}
-```
+此模式适用于您希望将 Docxy 作为 CDN 的源站，以获得更好的全球加速效果。
 
-2. 执行 `docker pull hello-world` 命令拉取镜像
+**特点:**
+- Docxy 仅监听 HTTP 端口。
+- 由 CDN 服务商负责处理 HTTPS 请求和证书。
+- Docxy 会信任并处理 `X-Forwarded-*` 头，以正确识别客户端 IP 和协议。
 
-#### 登录方式使用
+**安装流程:**
+1.  运行一键安装脚本。
+2.  在模式选择时，输入 `3`。
+3.  根据提示输入 Docxy 需要监听的 HTTP 端口。
+4.  配置您的 CDN 服务，将源站指向 Docxy 服务的地址和端口。
 
-1. 使用 `docker login test.com` 登录你的 Docker 镜像仓库
-2. 手动编辑 `~/.docker/config.json` 文件，添加以下内容：
-```diff
-{
-	"auths": {
-		"test.com": {
-			"auth": "<base64编码后的用户名密码或Token>"
--		}
-+		},
-+		"https://index.docker.io/v1/": {
-+			"auth": "<和上面一致即可>"
-+		}
-+	}
-}
-```
-
-> [!TIP]
-> Windows 11 位于 `%USERPROFILE%\.docker\config.json`
-
-3. 执行 `docker pull hello-world` 命令即可以认证后的方式拉取镜像，从而提升拉取次数
+</details>
 
 
-### 健康检查
+## Docker 客户端使用
 
-可以通过访问以下端点检查服务是否正常运行：
+配置 Docker 客户端以使用您的代理服务。
 
-```bash
-curl https://test.com/health
-```
+### 方式一：匿名使用 (基础配置)
 
-## API参考
+这是最基础的配置，将 Docker 的默认请求指向您的代理服务。
 
-| 端点 | 方法 | 描述 |
-|------|------|------|
-| `/health` | GET | 健康检查接口 |
-| `/v2/` | GET | Docker Registry API v2 入口点及认证质询 |
-| `/auth/token` | GET | 认证令牌获取接口 |
-| `/v2/{namespace}/{image}/{path_type}/{reference}` | GET/HEAD | 镜像资源访问接口，支持manifests和blobs等 |
+1.  **配置 Docker Daemon**
 
-## 其它方案
+    编辑 `/etc/docker/daemon.json` 文件 (如果不存在则创建)，并添加以下内容。将 `your-domain.com` 替换为您的域名。
 
-- [Cloudflare Worker 实现镜像代理](https://voxsay.com/posts/china-docker-registry-proxy-guide/)：谨慎使用，可能导致 Cloudflare 封号。
-- [Nginx 实现镜像代理](https://voxsay.com/posts/china-docker-registry-proxy-guide/)：仅代理了 registry-1.docker.io，还存在发往 auth.docker.io 的请求，一旦 auth.docker.io 也被封锁，将无法正常使用。
+    ```json
+    {
+      "registry-mirrors": ["https://your-domain.com"]
+    }
+    ```
+
+2.  **重启 Docker 服务**
+
+    ```bash
+    sudo systemctl restart docker
+    ```
+    现在，`docker pull` 将通过您的代理进行拉取。
+
+<details>
+<summary>方式二：登录使用 (提升拉取速率)</summary>
+
+此方式可以在匿名使用的基础上，通过登录您的 Docker Hub 账户来获取更高的镜像拉取速率。
+
+1.  **完成基础配置**
+
+    请确保您已经完成了 **方式一** 中的所有步骤。
+
+2.  **登录代理服务**
+
+    使用 `docker login` 命令并输入您的 Docker Hub 用户名和密码。
+
+    ```bash
+    docker login your-domain.com
+    ```
+
+3.  **同步认证信息**
+
+    登录成功后，需要手动编辑 `~/.docker/config.json` 文件，将您刚刚为 `your-domain.com` 生成的 `auth` 信息，复制一份给 `https://index.docker.io/v1/`。
+
+    修改前：
+    ```json
+    {
+        "auths": {
+            "your-domain.com": {
+                "auth": "aBcDeFgHiJkLmNoPqRsTuVwXyZ..."
+            }
+        }
+    }
+    ```
+
+    修改后：
+    ```json
+    {
+        "auths": {
+            "your-domain.com": {
+                "auth": "aBcDeFgHiJkLmNoPqRsTuVwXyZ..."
+            },
+            "https://index.docker.io/v1/": {
+                "auth": "aBcDeFgHiJkLmNoPqRsTuVwXyZ..."
+            }
+        }
+    }
+    ```
+    保存文件后，您的 `docker pull` 请求就会以认证用户的方式发送，从而享受更高的速率限制。
+
+</details>
+
+## 开发
+
+> [!NOTE]
+> 详细的技术背景、系统架构和实现流程，请参阅 [**技术架构与原理文档**](docs/ARCHITECTURE.md)。
+
+1.  **克隆仓库**
+    ```bash
+    git clone https://github.com/harrisonwang/docxy.git
+    cd docxy
+    ```
+
+2.  **修改配置文件**
+    打开 `config/default.toml`，修改 `[server]` 部分，确保 HTTP 服务被启用，HTTPS 服务被禁用。您可以将端口设置为 8080，以避免在开发环境中使用特权端口。
+
+    ```toml
+    # config/default.toml
+
+    [server]
+    http_port = 8080      # 使用非特权端口
+    https_port = 8443
+    http_enabled = true   # 启用 HTTP
+    https_enabled = false # 禁用 HTTPS
+    behind_proxy = true
+    ```
+
+3.  **运行项目**
+    现在，可以直接用 `cargo` 运行项目。
+    ```bash
+    cargo run
+    ```
+    服务将启动并监听在 `http://0.0.0.0:8080`。
+
+4.  **构建发布版本**
+    ```bash
+    cargo build --release
+    ```
 
 ## 许可证
 

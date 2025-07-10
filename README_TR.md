@@ -1,5 +1,7 @@
 # Docxy
 
+![og-image](og-image.png)
+
 [![English](https://img.shields.io/badge/English-Click-orange)](README_EN.md)
 [![简体中文](https://img.shields.io/badge/简体中文-点击查看-blue)](README.md)
 [![Русский](https://img.shields.io/badge/Русский-Нажмите-orange)](README_RU.md)
@@ -10,272 +12,208 @@
 [![Rust](https://img.shields.io/badge/rust-1.75%2B-blue.svg)](https://www.rust-lang.org)
 [![Docker](https://img.shields.io/badge/docker-28%2B-orange.svg)](https://www.docker.com)
 
-Belirli bölgelerde Docker Hub erişim kısıtlaması sorununu çözen hafif Docker görüntü proxy hizmeti.
+Hafif bir Docker görüntü proxy hizmeti, Çin anakarasında Docker Hub'a kısıtlı erişim sorununu çözmek için tasarlanmıştır.
 
-## Arka Plan
+> 📢 **Blog Eğitimi:** [**Docker Hub Bağlantı Zaman Aşımlarına Elveda Deyin! Docxy ile Özel Görüntü Hızlandırıcınızı Oluşturun**](https://voxsay.com/posts/docxy-docker-proxy-tutorial-for-china/)
 
-### Docker Görüntü Depoları Hakkında
+## Temel Özellikler
 
-Docker görüntü depoları, Docker konteyner görüntülerini depolayan ve dağıtan hizmetlerdir ve konteynerleştirilmiş uygulamalar için merkezi depolama sağlarlar. Bu depolar, geliştiricilerin konteyner görüntülerini itmesine, depolamasına, yönetmesine ve çekmesine olanak tanıyarak uygulamaların dağıtım ve konuşlandırma sürecini basitleştirir.
+*   🚀 **Tek Tıkla Dağıtım**: Ortam kurulumu, sertifika başvurusu (Let's Encrypt) ve hizmet dağıtımını tek tıklamayla tamamlamak için `install.sh` otomasyon betiği sağlar, manuel müdahale gerektirmez.
 
-### Görüntü Depo Türleri
+*   📦 **Çoklu Dağıtım Modları**:
+    *   **Bağımsız**: Dahili TLS işlevselliği, doğrudan HTTPS hizmeti sağlar.
+    *   **Nginx Proxy**: Nginx ile bir arka uç hizmeti olarak çalışabilir.
+    *   **CDN Kaynağı**: HTTP modunu destekler, CDN entegrasyonu için uygundur.
 
-- **Resmi Görüntü Deposu**: Docker Hub, Docker şirketi tarafından yönetilen resmi depo
-- **Üçüncü Taraf Bağımsız Görüntü Depoları**: AWS ECR, Google GCR, Alibaba Cloud ACR vb. gibi kendi görüntülerini yayımlamak ve paylaşmak için kullanılanlar
-- **Görüntü Hızlandırma Hizmetleri**: Tsinghua TUNA mirror, Alibaba Cloud görüntü hızlandırıcı vb. gibi Docker Hub için görüntü hızlandırma hizmetleri sunanlar
+*   ⚡ **Çekme Hızını Artırmak için Giriş**: Kullanıcıların `docker login` aracılığıyla kişisel Docker Hub hesaplarıyla kimlik doğrulaması yapmasına olanak tanır, anonim kullanıcıların çekme hızı limitini (IP başına saatte 10 çekme) kimliği doğrulanmış kullanıcılarınkine (hesap başına saatte 100 çekme) yükseltir.
 
-> [!NOTE]
-> Ağ kısıtlamaları nedeniyle bazı bölgelerde Docker Hub'a doğrudan erişim zordur ve çoğu görüntü hızlandırma hizmeti de hizmet vermeyi durdurmuştur.
+*   💎 **Tamamen Şeffaf Proxy**: Docker Registry V2 API ile tamamen uyumludur. İstemcilerin yalnızca ayna kaynağı adresini değiştirmesi gerekir, ek öğrenme eğrisi veya kullanım alışkanlıklarında değişiklik yoktur.
 
-### Neden Görüntü Proxy'sine İhtiyaç Var
+*   🛡️ **Yüksek Performans ve Güvenlik**: **Rust** ve **Actix Web** ile inşa edilmiştir, mükemmel performans ve bellek güvenliği sunar. Görüntü aktarımı için akış kullanır, minimum ek yük ile.
 
-Görüntü proxy'leri, Docker istemcileri ile Docker Hub arasında bağlantı kuran ara katman hizmetleridir. Gerçek görüntüleri depolamazlar, sadece istekleri iletirler ve şu sorunları etkili bir şekilde çözerler:
+## Kurulum ve Dağıtım
 
-- Ağ erişim kısıtlaması sorunları
-- Görüntü indirme hızının artırılması
-
-Docxy böyle bir görüntü proxy hizmetidir ve amacı, kendi kendine barındırılan bir görüntü proxy'si aracılığıyla ağ engellemelerini aşmak ve görüntü indirme hızını artırmaktır.
-
-### Görüntü Proxy'si Kullanım Sınırlamaları
-
-Docker Hub, görüntü çekme işlemleri için katı hız sınırlama politikaları uygular. Proxy hizmetleri kullanırken aşağıdaki sınırlamalar vardır:
-
-- Oturum açılmamışsa, her IP adresi saatte yalnızca 10 görüntü çekebilir
-- Kişisel bir hesapla oturum açılmışsa, saatte 100 görüntü çekebilirsiniz
-- Diğer hesap türleri için belirli sınırlamalar için aşağıdaki tabloya bakın:
-
-| Kullanıcı Türü                | Pull Hız Sınırı       |
-| ----------------------------- | --------------------- |
-| Business (kimliği doğrulanmış) | Sınırsız              |
-| Team (kimliği doğrulanmış)     | Sınırsız              |
-| Pro (kimliği doğrulanmış)      | Sınırsız              |
-| **Personal (kimliği doğrulanmış)** | **100/saat/hesap** |
-| **Kimliği doğrulanmamış kullanıcılar** | **10/saat/IP**     |
-
-## Teknik İlkeler
-
-Docxy, eksiksiz bir Docker Registry API proxy'si uygular ve kullanmak için sadece Docker istemci proxy yapılandırması eklemeniz gerekir.
-
-### Sistem Mimarisi
-
-```mermaid
-graph TD
-    Client[Docker İstemcisi] -->|İstek Gönder| HttpServer[HTTP Sunucusu]
-    
-    subgraph "Docker Görüntü Proxy Hizmeti"
-        HttpServer -->|İstek Yönlendirme| RouterHandler[Yönlendirici İşleyici]
-        
-        RouterHandler -->|/v2/| ChallengeHandler[Meydan Okuma İşleyici<br>proxy_challenge]
-        RouterHandler -->|/auth/token| TokenHandler[Token İşleyici<br>get_token]
-        RouterHandler -->|/v2/namespace/image/path_type| RequestHandler[İstek İşleyici<br>handle_request]
-        RouterHandler -->|/health| HealthCheck[Sağlık Kontrolü<br>health_check]
-        
-        ChallengeHandler --> HttpClient
-        TokenHandler --> HttpClient
-        RequestHandler --> HttpClient
-        
-    end
-    
-    HttpClient[HTTP İstemcisi<br>reqwest]
-    
-    HttpClient -->|Kimlik Doğrulama İsteği| DockerAuth[Docker Auth<br>auth.docker.io]
-    HttpClient -->|Görüntü İsteği| DockerRegistry[Docker Registry<br>registry-1.docker.io]
-```
-
-### İstek Akışı
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor Client as Docker İstemcisi
-    participant Proxy as Docxy Proxy
-    participant Registry as Docker Registry
-    participant Auth as Docker Auth Service
-    
-    %% Meydan Okuma İsteği İşleme
-    Client->>Proxy: GET /v2/
-    Proxy->>+Registry: GET /v2/
-    Registry-->>-Proxy: 401 Unauthorized (WWW-Authenticate)
-    Proxy->>Proxy: WWW-Authenticate başlığını düzenle, realm yerel /auth/token'e işaret eder
-    Proxy-->>Client: 401 Düzenlenmiş kimlik doğrulama başlığını döndür
-    
-    %% Token Alma
-    Client->>Proxy: GET /auth/token?scope=repository:library/cirros:pull
-    Proxy->>+Auth: GET /token?service=registry.docker.io&scope=repository:library/cirros:pull
-    Auth-->>-Proxy: 200 Token döndür
-    Proxy-->>Client: 200 Orijinal token yanıtını döndür
-    
-    %% Görüntü Özet İsteği İşleme
-    Client->>Proxy: HEAD /v2/library/cirros/manifests/latest
-    Proxy->>+Registry: İsteği ilet (kimlik doğrulama başlığı ve Accept başlığı ile)
-    Registry-->>-Proxy: Görüntü benzersiz tanımlayıcısını döndür
-    Proxy-->>Client: Görüntü benzersiz tanımlayıcısını döndür (orijinal yanıt başlıklarını ve durum kodunu koru)
-
-    %% Görüntü Metadata İsteği İşleme
-    Client->>Proxy: GET /v2/library/cirros/manifests/{docker-content-digest}
-    Proxy->>+Registry: İsteği ilet (kimlik doğrulama başlığı ve Accept başlığı ile)
-    Registry-->>-Proxy: Görüntü metadatasını döndür
-    Proxy-->>Client: Görüntü metadatasını döndür (orijinal yanıt başlıklarını ve durum kodunu koru)
-
-    %% Görüntü Yapılandırması ve Katman Bilgisi İsteği İşleme
-    Client->>Proxy: GET /v2/library/cirros/manifests/{digest}
-    Proxy->>+Registry: İsteği ilet (kimlik doğrulama başlığı ve Accept başlığı ile)
-    Registry-->>-Proxy: Belirtilen mimari için görüntü yapılandırması ve katman bilgisini döndür
-    Proxy-->>Client: Belirtilen mimari için görüntü yapılandırması ve katman bilgisini döndür (orijinal yanıt başlıklarını ve durum kodunu koru)
-
-    %% Görüntü Yapılandırması Detay İsteği İşleme
-    Client->>Proxy: GET /v2/library/cirros/blobs/{digest}
-    Proxy->>+Registry: İsteği ilet (kimlik doğrulama başlığı ve Accept başlığı ile)
-    Registry-->>-Proxy: Görüntü yapılandırma detaylarını döndür
-    Proxy-->>Client: Görüntü yapılandırma detaylarını döndür (orijinal yanıt başlıklarını ve durum kodunu koru)
-    
-    %% Görüntü Katmanı İkili Veri İsteği İşleme (her katman için döngü)
-    loop Her görüntü katmanı için
-        Client->>Proxy: GET /v2/library/cirros/blobs/{digest}
-        Proxy->>+Registry: Blob isteğini ilet
-        Registry-->>-Proxy: Blob verilerini döndür
-        Proxy-->>Client: Blob verilerini akış olarak döndür
-    end
-```
-
-### Sertifika İşleme Süreci
-
-```mermaid
-flowchart LR
-    A[Hizmeti Başlat] --> B{Ortam Değişkenlerini Kontrol Et}
-    B -->|Var| C[Belirtilen Sertifika Yolunu Kullan]
-    B -->|Yok| D[Varsayılan Sertifika Yolunu Kullan]
-    C --> E[Sertifika Dosyalarını Yükle]
-    D --> E
-    E --> F{Sertifika Türü Belirleme}
-    F -->|ECC| G[ECC Özel Anahtarı Yükle]
-    F -->|RSA| H[RSA Özel Anahtarı Yükle]
-    F -->|PKCS8| I[PKCS8 Özel Anahtarı Yükle]
-    G --> J[TLS Yapılandırmasını Başlat]
-    H --> J
-    I --> J
-    J --> K[HTTPS Hizmetini Başlat]
-```
-
-## Özellikler
-
-- **Şeffaf Proxy**: Docker Registry API v2 ile tamamen uyumlu
-- **Sorunsuz Entegrasyon**: Sadece görüntü kaynağı yapılandırması gerektirir, kullanım alışkanlıklarını değiştirmek gerekmez
-- **Yüksek Performanslı Aktarım**: Yanıt verilerini akış işleme kullanır, büyük görüntü indirmelerini destekler
-- **TLS Şifreleme**: Yerleşik HTTPS desteği, güvenli veri iletimini sağlar
-- **Resmi Görüntü İndirme Hızlandırma**: Daha kararlı bağlantılar sağlar
-- **Ağ Engellemelerini Aşma**: Belirli bölgelerdeki erişim kısıtlaması sorunlarını çözer
-
-## Hızlı Başlangıç
-
-> [!TIP]
-> Dağıtıma başlamadan önce, lütfen alan adınızı hedef makineye önceden çözümleyin.
-
-### Tek Tıkla Dağıtım
+Dağıtım sürecini basitleştirmek için tek tıklamayla kurulum betiği sağlıyoruz. Başlamadan önce, lütfen alan adınızın hedef ana bilgisayara çözümlendiğinden emin olun.
 
 ```bash
 bash <(curl -Ls https://raw.githubusercontent.com/harrisonwang/docxy/main/install.sh)
 ```
 
-> [!WARNING]
-> Not: ZeroSSL sertifika yetkilisi, sertifika vermeden önce hesap kaydı gerektirir. Kullanım kolaylığı için, betik Let's Encrypt'i sertifika yetkilisi olarak zorlar ve sertifikayı zorla yeniden düzenler.
+Betik, kurulum boyunca size rehberlik edecek ve aşağıdaki üç dağıtım modunu sunacaktır:
 
-### Geliştirme
+---
 
-1. Depoyu klonlayın
+### Mod Bir: Bağımsız (HTTPS)
 
-   ```bash
-   cd /opt
-   git clone https://github.com/harrisonwang/docxy.git
-   ```
+Bu en basit ve en çok önerilen moddur. Docxy, doğrudan 80 ve 443 numaralı bağlantı noktalarını dinleyecek ve tam bir HTTPS proxy hizmeti sağlayacaktır.
 
-2. Proje dizinine girin
+**Özellikler:**
+- Ek web sunucusu yapılandırmasına gerek yok.
+- HTTP'den HTTPS'ye yönlendirmeyi otomatik olarak yönetir.
+- Let's Encrypt sertifikalarını otomatik olarak uygulamak veya kendi sertifikalarınızı kullanmak için seçenek.
 
-   ```bash
-   cd /opt/docxy
-   ```
+**Kurulum Süreci:**
+1.  Tek tıklamayla kurulum betiğini çalıştırın.
+2.  Mod seçimi istendiğinde `1` girin veya sadece Enter tuşuna basın.
+3.  Alan adınızı girmek ve sertifika işleme yöntemini seçmek için istemleri izleyin.
+4.  Betik, tüm yapılandırmaları otomatik olarak tamamlayacak ve hizmeti başlatacaktır.
 
-3. Sertifikaları yapılandırın (test.com alan adı örneği)
+---
 
-   ```bash
-   export DOCXY_CERT_PATH=/root/.acme.sh/test.com_ecc/fullchain.cer
-   export DOCXY_KEY_PATH=/root/.acme.sh/test.com_ecc/test.com.key
-   ```
+<details>
+<summary>Mod İki: Nginx Ters Proxy (Gelişmiş)</summary>
 
-> [!TIP]
-> Lütfen acme.sh kullanarak TLS sertifikalarını önceden edinin
+### Mod İki: Nginx Ters Proxy
 
-4. Hizmeti başlatın
+Bu mod, zaten Nginx'iniz varsa ve web hizmetlerini merkezi olarak yönetmek istiyorsanız uygundur.
 
-   ```bash
-   cargo run
-   ```
+**Özellikler:**
+- Nginx, HTTPS şifrelemesini ve sertifika yönetimini ele alır, Docxy ise düz bir HTTP arka ucu olarak çalışır.
+- Docxy, belirtilen bir bağlantı noktasında (örneğin, 9000) bir arka uç HTTP hizmeti olarak çalışır.
+- Diğer hizmetlerle entegrasyon için uygundur.
 
-5. İkili paket oluşturun
+**Kurulum Süreci:**
+1.  Tek tıklamayla kurulum betiğini çalıştırın.
+2.  Mod seçimi istendiğinde `2` girin.
+3.  Alan adınızı, Docxy arka uç dinleme bağlantı noktasını ve sertifika bilgilerini girmek için istemleri izleyin.
+4.  Betik, sizin için otomatik olarak örnek bir Nginx yapılandırma dosyası oluşturacaktır. Bunu Nginx yapılandırmanıza manuel olarak eklemeniz ve Nginx hizmetini yeniden yüklemeniz gerekecektir.
 
-   ```bash
-   cargo build --release
-   ```
+</details>
 
-### Docker İstemci Kullanımı
+---
 
-#### Varsayılan Kullanım
+<details>
+<summary>Mod Üç: CDN Kaynağı (HTTP) (Gelişmiş)</summary>
 
-1. `/etc/docker/daemon.json` yapılandırma dosyasını düzenleyin ve aşağıdaki proxy ayarlarını ekleyin:
+### Mod Üç: CDN Kaynağı (HTTP)
 
-```json
-{
-  "registry-mirrors": ["https://test.com"]
-}
-```
+Bu mod, daha iyi küresel hızlandırma elde etmek için Docxy'yi bir CDN için kaynak olarak kullanmak istiyorsanız uygundur.
 
-2. Görüntüleri çekmek için `docker pull hello-world` komutunu çalıştırın
+**Özellikler:**
+- Docxy yalnızca HTTP bağlantı noktalarını dinler.
+- CDN sağlayıcısı HTTPS isteklerini ve sertifikalarını yönetir.
+- Docxy, istemci IP'sini ve protokolünü doğru bir şekilde tanımlamak için `X-Forwarded-*` başlıklarına güvenir ve bunları işler.
 
-#### Giriş Yapmış Kullanım
+**Kurulum Süreci:**
+1.  Tek tıklamayla kurulum betiğini çalıştırın.
+2.  Mod seçimi istendiğinde `3` girin.
+3.  Docxy'nin dinlemesi gereken HTTP bağlantı noktasını girmek için istemleri izleyin.
+4.  CDN hizmetinizi, kaynağını Docxy hizmet adresine ve bağlantı noktasına işaret edecek şekilde yapılandırın.
 
-1. Docker görüntü deponuzda oturum açmak için `docker login test.com` kullanın
-2. `~/.docker/config.json` dosyasını manuel olarak düzenleyin ve aşağıdaki içeriği ekleyin:
-```diff
-{
-	"auths": {
-		"test.com": {
-			"auth": "<base64 kodlanmış kullanıcı_adı:şifre veya Token>"
--		}
-+		},
-+		"https://index.docker.io/v1/": {
-+			"auth": "<yukarıdaki ile aynı>"
-+		}
-+	}
-}
-```
+</details>
 
-> [!TIP]
-> Windows 11'de dosya `%USERPROFILE%\.docker\config.json` konumundadır
 
-3. Kimlik doğrulama ile görüntü çekmek için `docker pull hello-world` komutunu çalıştırın, böylece çekme limitlerini artırabilirsiniz
+## Docker İstemci Kullanımı
 
-### Sağlık Kontrolü
+Proxy hizmetinizi kullanmak için Docker istemcinizi yapılandırın.
 
-Aşağıdaki uç noktaya erişerek hizmetin düzgün çalışıp çalışmadığını kontrol edebilirsiniz:
+### Yöntem Bir: Anonim Kullanım (Temel Yapılandırma)
 
-```bash
-curl https://test.com/health
-```
+Bu, Docker'ın varsayılan isteklerini proxy hizmetinize yönlendiren temel yapılandırmadır.
 
-## API Referansı
+1.  **Docker Daemon'ı Yapılandırın**
 
-| Uç Nokta | Metod | Açıklama |
-|----------|-------|----------|
-| `/health` | GET | Sağlık kontrolü arayüzü |
-| `/v2/` | GET | Docker Registry API v2 giriş noktası ve kimlik doğrulama meydan okuması |
-| `/auth/token` | GET | Kimlik doğrulama token'i alma arayüzü |
-| `/v2/{namespace}/{image}/{path_type}/{reference}` | GET/HEAD | Görüntü kaynağı erişim arayüzü, manifests ve blobs vb. destekler |
+    `/etc/docker/daemon.json` dosyasını düzenleyin (yoksa oluşturun) ve aşağıdaki içeriği ekleyin. `your-domain.com`'u alan adınızla değiştirin.
 
-## Diğer Çözümler
+    ```json
+    {
+      "registry-mirrors": ["https://your-domain.com"]
+    }
+    ```
 
-- [Cloudflare Worker ile Görüntü Proxy'si Uygulaması](https://voxsay.com/posts/china-docker-registry-proxy-guide/): Dikkatli kullanın, Cloudflare hesabının askıya alınmasına neden olabilir.
-- [Nginx ile Görüntü Proxy'si Uygulaması](https://voxsay.com/posts/china-docker-registry-proxy-guide/): Sadece registry-1.docker.io için proxy yapar, ancak hala auth.docker.io'ya gönderilen istekler vardır. auth.docker.io da engellenirse, düzgün çalışmayacaktır.
+2.  **Docker Hizmetini Yeniden Başlatın**
+
+    ```bash
+    sudo systemctl restart docker
+    ```
+    Şimdi, `docker pull` görüntüleri proxy'niz aracılığıyla çekecektir.
+
+<details>
+<summary>Yöntem İki: Giriş Kullanımı (Çekme Hızını Artırın)</summary>
+
+Bu yöntem, anonim kullanıma ek olarak Docker Hub hesabınızla oturum açarak daha yüksek bir görüntü çekme hızı elde etmenizi sağlar.
+
+1.  **Temel Yapılandırmayı Tamamlayın**
+
+    Lütfen **Yöntem Bir**'deki tüm adımları tamamladığınızdan emin olun.
+
+2.  **Proxy Hizmetine Giriş Yapın**
+
+    `docker login` komutunu kullanın ve Docker Hub kullanıcı adınızı ve şifrenizi girin.
+
+    ```bash
+    docker login your-domain.com
+    ```
+
+3.  **Kimlik Doğrulama Bilgilerini Senkronize Edin**
+
+    Başarılı bir şekilde giriş yaptıktan sonra, `~/.docker/config.json` dosyasını manuel olarak düzenlemeniz gerekir. `your-domain.com` için oluşturulan `auth` bilgilerini kopyalayın ve `https://index.docker.io/v1/` için yapıştırın.
+
+    Değişiklikten önce:
+    ```json
+    {
+        "auths": {
+            "your-domain.com": {
+                "auth": "aBcDeFgHiJkLmNoPqRsTuVwXyZ..."
+            }
+        }
+    }
+    ```
+
+    Değişiklikten sonra:
+    ```json
+    {
+        "auths": {
+            "your-domain.com": {
+                "auth": "aBcDeFgHiJkLmNoPqRsTuVwXyZ..."
+            },
+            "https://index.docker.io/v1/": {
+                "auth": "aBcDeFgHiJkLmNoPqRsTuVwXyZ..."
+            }
+        }
+    }
+    ```
+    Dosyayı kaydettikten sonra, `docker pull` istekleriniz kimliği doğrulanmış bir kullanıcı olarak gönderilecek ve böylece daha yüksek hız limitlerinden yararlanacaksınız.
+
+</details>
+
+## Geliştirme
+
+> [!NOTE]
+> Ayrıntılı teknik arka plan, sistem mimarisi ve uygulama prensipleri için lütfen [**Teknik Mimari ve Prensipler Belgesi**](docs/ARCHITECTURE.md)'ne bakın.
+
+1.  **Depoyu Klonlayın**
+    ```bash
+    git clone https://github.com/harrisonwang/docxy.git
+    cd docxy
+    ```
+
+2.  **Yapılandırma Dosyasını Değiştirin**
+    `config/default.toml` dosyasını açın ve HTTP hizmetinin etkinleştirildiğinden ve HTTPS hizmetinin devre dışı bırakıldığından emin olmak için `[server]` bölümünü değiştirin. Geliştirme ortamında ayrıcalıklı bağlantı noktalarını kullanmaktan kaçınmak için bağlantı noktasını 8080 olarak ayarlayabilirsiniz.
+
+    ```toml
+    # config/default.toml
+
+    [server]
+    http_port = 8080      # Ayrıcalıklı olmayan bağlantı noktası kullanın
+    https_port = 8443
+    http_enabled = true   # HTTP'yi etkinleştir
+    https_enabled = false # HTTPS'yi devre dışı bırak
+    behind_proxy = true
+    ```
+
+3.  **Projeyi Çalıştırın**
+    Şimdi, projeyi doğrudan `cargo` ile çalıştırabilirsiniz.
+    ```bash
+    cargo run
+    ```
+    Hizmet başlayacak ve `http://0.0.0.0:8080` adresini dinleyecektir.
+
+4.  **Sürüm Oluşturun**
+    ```bash
+    cargo build --release
+    ```
 
 ## Lisans
 
-Bu proje MIT Lisansı altında lisanslanmıştır - detaylar için [LICENSE](LICENSE) dosyasına bakın.
+Bu proje MIT Lisansı altında lisanslanmıştır. Daha fazla bilgi için [LICENSE](LICENSE)'a bakın.
