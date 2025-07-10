@@ -132,9 +132,10 @@ pub async fn proxy_challenge(req: HttpRequest) -> Result<HttpResponse, AppError>
 
     // 只有在返回 401 时才设置 WWW-Authenticate 头
     if status == 401 {
+        let scheme = req.connection_info().scheme();
         let auth_header = format!(
-            "Bearer realm=\"https://{}/auth/token\",service=\"registry.docker.io\"",
-            host
+            "Bearer realm=\"{}://{}/auth/token\",service=\"registry.docker.io\"",
+            scheme, host
         );
         info!("设置认证头: {}", auth_header);
         
