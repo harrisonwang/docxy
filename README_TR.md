@@ -9,8 +9,6 @@
 [![한국어](https://img.shields.io/badge/한국어-클릭-orange)](README_KR.md)
 [![العربية](https://img.shields.io/badge/العربية-انقر-blue)](README_AR.md)
 [![Türkçe](https://img.shields.io/badge/Türkçe-Tıkla-orange)](README_TR.md)
-[![Rust](https://img.shields.io/badge/rust-1.75%2B-blue.svg)](https://www.rust-lang.org)
-[![Docker](https://img.shields.io/badge/docker-28%2B-orange.svg)](https://www.docker.com)
 
 Hafif bir Docker görüntü proxy hizmeti, Çin anakarasında Docker Hub'a kısıtlı erişim sorununu çözmek için tasarlanmıştır.
 
