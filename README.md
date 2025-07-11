@@ -187,7 +187,13 @@ bash <(curl -Ls https://raw.githubusercontent.com/harrisonwang/docxy/main/instal
     ```
 
 2.  **修改配置文件**
-    打开 `config/default.toml`，修改 `[server]` 部分，确保 HTTP 服务被启用，HTTPS 服务被禁用。您可以将端口设置为 8080，以避免在开发环境中使用特权端口。
+    打开 `config/default.toml.example`，复制为 `config/default.toml`，然后修改 `[server]` 部分，确保 HTTP 服务被启用，HTTPS 服务被禁用。您可以将端口设置为 8080，以避免在开发环境中使用特权端口。
+
+    ```bash
+    cp config/default.toml.example config/default.toml
+    ```
+
+    然后编辑 `config/default.toml`：
 
     ```toml
     # config/default.toml
