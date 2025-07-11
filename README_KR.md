@@ -187,7 +187,13 @@ bash <(curl -Ls https://raw.githubusercontent.com/harrisonwang/docxy/main/instal
     ```
 
 2.  **구성 파일 수정**
-    `config/default.toml`을 열고 `[server]` 섹션을 수정하여 HTTP 서비스가 활성화되고 HTTPS 서비스가 비활성화되었는지 확인합니다. 개발 환경에서 권한 있는 포트를 사용하지 않도록 포트를 8080으로 설정할 수 있습니다.
+    `config/default.toml.example`을 열고 `config/default.toml`로 복사한 다음 `[server]` 섹션을 수정하여 HTTP 서비스가 활성화되고 HTTPS 서비스가 비활성화되었는지 확인합니다. 개발 환경에서 권한 있는 포트를 사용하지 않도록 포트를 8080으로 설정할 수 있습니다.
+
+    ```bash
+    cp config/default.toml.example config/default.toml
+    ```
+
+    그러다음 `config/default.toml`을 편집하세요:
 
     ```toml
     # config/default.toml

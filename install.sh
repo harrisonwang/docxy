@@ -271,7 +271,7 @@ download_docxy() {
 copy_default_config() {
   echo -e "${YELLOW}正在复制和配置默认配置文件...${NC}"
   mkdir -p /etc/docxy/config/
-  curl -Ls https://raw.githubusercontent.com/harrisonwang/docxy/main/config/default.toml -o /etc/docxy/config/default.toml || {
+  curl -Ls https://raw.githubusercontent.com/harrisonwang/docxy/main/config/default.toml.example -o /etc/docxy/config/default.toml || {
     echo -e "${RED}下载默认配置文件失败${NC}"
     exit 1
   }

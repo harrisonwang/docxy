@@ -187,7 +187,13 @@ bash <(curl -Ls https://raw.githubusercontent.com/harrisonwang/docxy/main/instal
     ```
 
 2.  **Изменить файл конфигурации**
-    Откройте `config/default.toml` и измените раздел `[server]`, чтобы убедиться, что служба HTTP включена, а служба HTTPS отключена. Вы можете установить порт 8080, чтобы избежать использования привилегированных портов в среде разработки.
+    Откройте `config/default.toml.example`, скопируйте его в `config/default.toml`, затем измените раздел `[server]`, чтобы убедиться, что служба HTTP включена, а служба HTTPS отключена. Вы можете установить порт 8080, чтобы избежать использования привилегированных портов в среде разработки.
+
+    ```bash
+    cp config/default.toml.example config/default.toml
+    ```
+
+    Затем отредактируйте `config/default.toml`:
 
     ```toml
     # config/default.toml

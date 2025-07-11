@@ -187,7 +187,13 @@ bash <(curl -Ls https://raw.githubusercontent.com/harrisonwang/docxy/main/instal
     ```
 
 2.  **تعديل ملف التكوين**
-    افتح `config/default.toml` وقم بتعديل قسم `[server]` للتأكد من تمكين خدمة HTTP وتعطيل خدمة HTTPS. يمكنك تعيين المنفذ إلى 8080 لتجنب استخدام المنافذ المميزة في بيئة التطوير.
+    افتح `config/default.toml.example` وانسخه إلى `config/default.toml`، ثم قم بتعديل قسم `[server]` للتأكد من تمكين خدمة HTTP وتعطيل خدمة HTTPS. يمكنك تعيين المنفذ إلى 8080 لتجنب استخدام المنافذ المميزة في بيئة التطوير.
+
+    ```bash
+    cp config/default.toml.example config/default.toml
+    ```
+
+    ثم قم بتحرير `config/default.toml`:
 
     ```toml
     # config/default.toml

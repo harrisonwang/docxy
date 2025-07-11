@@ -187,7 +187,13 @@ Este método le permite obtener una mayor tasa de extracción de imágenes inici
     ```
 
 2.  **Modificar Archivo de Configuración**
-    Abra `config/default.toml` y modifique la sección `[server]` para asegurarse de que el servicio HTTP esté habilitado y el servicio HTTPS esté deshabilitado. Puede establecer el puerto en 8080 para evitar el uso de puertos privilegiados en el entorno de desarrollo.
+    Abra `config/default.toml.example`, cópielo a `config/default.toml`, luego modifique la sección `[server]` para asegurarse de que el servicio HTTP esté habilitado y el servicio HTTPS esté deshabilitado. Puede establecer el puerto en 8080 para evitar el uso de puertos privilegiados en el entorno de desarrollo.
+
+    ```bash
+    cp config/default.toml.example config/default.toml
+    ```
+
+    Luego edite `config/default.toml`:
 
     ```toml
     # config/default.toml

@@ -187,7 +187,13 @@ Bu yöntem, anonim kullanıma ek olarak Docker Hub hesabınızla oturum açarak 
     ```
 
 2.  **Yapılandırma Dosyasını Değiştirin**
-    `config/default.toml` dosyasını açın ve HTTP hizmetinin etkinleştirildiğinden ve HTTPS hizmetinin devre dışı bırakıldığından emin olmak için `[server]` bölümünü değiştirin. Geliştirme ortamında ayrıcalıklı bağlantı noktalarını kullanmaktan kaçınmak için bağlantı noktasını 8080 olarak ayarlayabilirsiniz.
+    `config/default.toml.example` dosyasını açın, `config/default.toml` olarak kopyalayın, ardından HTTP hizmetinin etkinleştirildiğinden ve HTTPS hizmetinin devre dışı bırakıldığından emin olmak için `[server]` bölümünü değiştirin. Geliştirme ortamında ayrıcalıklı bağlantı noktalarını kullanmaktan kaçınmak için bağlantı noktasını 8080 olarak ayarlayabilirsiniz.
+
+    ```bash
+    cp config/default.toml.example config/default.toml
+    ```
+
+    Ardından `config/default.toml` dosyasını düzenleyin:
 
     ```toml
     # config/default.toml

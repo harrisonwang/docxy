@@ -187,7 +187,13 @@ This method allows you to get a higher image pull rate by logging in with your D
     ```
 
 2.  **Modify Configuration File**
-    Open `config/default.toml` and modify the `[server]` section to ensure HTTP service is enabled and HTTPS service is disabled. You can set the port to 8080 to avoid using privileged ports in the development environment.
+    Open `config/default.toml.example`, copy it to `config/default.toml`, then modify the `[server]` section to ensure HTTP service is enabled and HTTPS service is disabled. You can set the port to 8080 to avoid using privileged ports in the development environment.
+
+    ```bash
+    cp config/default.toml.example config/default.toml
+    ```
+
+    Then edit `config/default.toml`:
 
     ```toml
     # config/default.toml
