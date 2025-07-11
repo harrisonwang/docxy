@@ -5,5 +5,5 @@ pub mod proxy;
 
 pub use auth::{get_token, proxy_challenge};
 pub use health::health_check;
-pub use misc::{handle_invalid_request, redirect_to_https};
+pub use misc::{handle_invalid_request, redirect_to_https, generate_204};
 pub use proxy::handle_request;
