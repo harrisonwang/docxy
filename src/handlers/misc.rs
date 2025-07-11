@@ -30,3 +30,10 @@ pub async fn redirect_to_https(req: HttpRequest) -> HttpResponse {
         .append_header(("Location", redirect_url))
         .finish()
 }
+
+// 返回 HTTP 204 No Content 响应，用于网络连通性检测
+pub async fn generate_204() -> HttpResponse {
+    HttpResponse::NoContent()
+        .insert_header(("Content-Length", "0"))
+        .finish()
+}

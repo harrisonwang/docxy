@@ -90,6 +90,7 @@ async fn main() -> Result<(), AppError> {
                    web::route()
                    .guard(guard::Any(guard::Get()).or(guard::Head()))
                    .to(handlers::handle_request))
+            .route("/generate_204", web::get().to(handlers::generate_204))
             .default_service(web::route().to(handlers::handle_invalid_request))  // 添加默认服务处理非法请求
     };
     
@@ -141,6 +142,7 @@ async fn main() -> Result<(), AppError> {
                                web::route()
                                .guard(guard::Any(guard::Get()).or(guard::Head()))
                                .to(handlers::handle_request))
+                        .route("/generate_204", web::get().to(handlers::generate_204))
                         .default_service(web::route().to(handlers::handle_invalid_request))  // 添加默认服务处理非法请求
                 })
                     .bind_rustls(("0.0.0.0", settings.server.https_port), rustls_config)?

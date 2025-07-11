@@ -1,6 +1,6 @@
 [package]
 name = "docxy"
-version = "0.5.12"
+version = "0.5.13"
 edition = "2024"
 
 [dependencies]
