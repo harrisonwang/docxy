@@ -6,6 +6,31 @@ use log::{info, error};
 use crate::error::AppError;
 use crate::HTTP_CLIENT;
 
+// 处理 scope 参数中的官方镜像前缀
+fn process_scope_parameter(scope: &str) -> String {
+    // scope 格式通常是: repository:image_name:action
+    // 例如: repository:hello-world:pull
+    // 需要转换为: repository:library/hello-world:pull
+    
+    let parts: Vec<&str> = scope.split(':').collect();
+    if parts.len() == 3 && parts[0] == "repository" {
+        let image_name = parts[1];
+        let action = parts[2];
+        
+        // 检查是否为官方镜像（没有命名空间）
+        let processed_image_name = if !image_name.contains('/') {
+            format!("library/{}", image_name)
+        } else {
+            image_name.to_string()
+        };
+        
+        format!("repository:{}:{}", processed_image_name, action)
+    } else {
+        // 非标准格式，保持原样
+        scope.to_string()
+    }
+}
+
 // 获取 Token 的处理函数
 pub async fn get_token(req: HttpRequest) -> Result<HttpResponse, AppError> {
     // 1. 尝试解析查询参数，失败则返回 400
@@ -24,10 +49,16 @@ pub async fn get_token(req: HttpRequest) -> Result<HttpResponse, AppError> {
         query_pairs.append_pair("service", "registry.docker.io");
 
         // 3. 透传所有客户端提供的查询参数（包含 account、client_id、offline_token、scope 等）
-        //    避免重复 service
+        //    避免重复 service，并处理 scope 参数中的官方镜像前缀
         for (k, v) in query_params.iter() {
             if k != "service" {
-                query_pairs.append_pair(k, v);
+                if k == "scope" {
+                    // 处理 scope 参数中的官方镜像前缀
+                    let processed_scope = process_scope_parameter(v);
+                    query_pairs.append_pair(k, &processed_scope);
+                } else {
+                    query_pairs.append_pair(k, v);
+                }
             }
         }
     }
