@@ -13,8 +13,15 @@ pub async fn handle_request(
     // 获取路径参数
     let (image_name, path_type, reference) = path.into_inner();
 
-    // 使用常量构建目标URL
-    let path = format!("/v2/{image_name}/{path_type}/{reference}");
+    // 处理官方镜像的 library/ 前缀
+    let processed_image_name = if !image_name.contains('/') {
+        format!("library/{}", image_name)
+    } else {
+        image_name
+    };
+
+    // 使用处理后的镜像名构建目标URL
+    let path = format!("/v2/{processed_image_name}/{path_type}/{reference}");
     
     // 构建请求，根据原始请求的方法选择 HEAD 或 GET
     let target_url = format!("{upstream_registry}{path}");
