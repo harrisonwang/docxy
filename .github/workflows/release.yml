@@ -65,6 +65,10 @@ jobs:
       - name: 构建发布版本
         run: cargo build --release
 
+      - name: 获取版本号
+        id: get_version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
       - name: 准备二进制文件
         run: |
           cp target/release/docxy docxy-v${{ steps.get_version.outputs.VERSION }}-linux-arm64
