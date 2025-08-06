@@ -23,7 +23,7 @@ fi
 # 检查依赖
 check_dependencies() {
   echo -e "${YELLOW}正在检查依赖...${NC}"
-  
+
   # 检查 curl
   if ! command -v curl &> /dev/null; then
     echo -e "${YELLOW}正在安装 curl...${NC}"
@@ -32,7 +32,7 @@ check_dependencies() {
       exit 1
     }
   fi
-  
+
   # 检查 socat (acme.sh 需要)
   if ! command -v socat &> /dev/null; then
     echo -e "${YELLOW}正在安装 socat...${NC}"
@@ -41,7 +41,7 @@ check_dependencies() {
       exit 1
     }
   fi
-  
+
   echo -e "${GREEN}所有依赖已满足${NC}"
 }
 
@@ -49,12 +49,12 @@ check_dependencies() {
 get_domain() {
   echo -e "${YELLOW}请输入您的域名 (例如: example.com):${NC}"
   read -r DOMAIN
-  
+
   if [ -z "$DOMAIN" ]; then
     echo -e "${RED}域名不能为空${NC}"
     exit 1
   fi
-  
+
   echo -e "${GREEN}将使用域名: ${DOMAIN}${NC}"
 }
 
@@ -62,7 +62,7 @@ get_domain() {
 ask_certificate_option() {
   echo -e "${YELLOW}您是否已有 SSL 证书? (y/n):${NC}"
   read -r CERT_OPTION
-  
+
   if [[ "$CERT_OPTION" =~ ^[Yy]$ ]]; then
     USE_EXISTING_CERT=true
     echo -e "${GREEN}将使用您提供的证书${NC}"
@@ -76,21 +76,21 @@ ask_certificate_option() {
 get_certificate_paths() {
   echo -e "${YELLOW}请输入证书完整路径 (fullchain.cer 或 .pem):${NC}"
   read -r DOCXY_CERT_PATH
-  
+
   echo -e "${YELLOW}请输入私钥完整路径 (.key):${NC}"
   read -r DOCXY_KEY_PATH
-  
+
   # 验证文件是否存在
   if [ ! -f "$DOCXY_CERT_PATH" ]; then
     echo -e "${RED}证书文件不存在: $DOCXY_CERT_PATH${NC}"
     exit 1
   fi
-  
+
   if [ ! -f "$DOCXY_KEY_PATH" ]; then
     echo -e "${RED}私钥文件不存在: $DOCXY_KEY_PATH${NC}"
     exit 1
   fi
-  
+
   echo -e "${GREEN}将使用以下证书文件:${NC}"
   echo -e "证书: ${YELLOW}$DOCXY_CERT_PATH${NC}"
   echo -e "私钥: ${YELLOW}$DOCXY_KEY_PATH${NC}"
@@ -161,26 +161,26 @@ set_mode_parameters() {
 # 修改端口检查函数
 check_ports() {
   echo -e "${YELLOW}检查端口 ${HTTP_PORT} 和 ${HTTPS_PORT} 是否可用...${NC}"
-  
+
   # 检查HTTP端口
   if netstat -tuln | grep -q ":${HTTP_PORT} "; then
     echo -e "${RED}端口 ${HTTP_PORT} 已被占用，请关闭占用该端口的服务后重试${NC}"
     exit 1
   fi
-  
+
   # 检查HTTPS端口
   if [ "$DEPLOYMENT_MODE" = "standalone_https" ] && netstat -tuln | grep -q ":${HTTPS_PORT} "; then
     echo -e "${RED}端口 ${HTTPS_PORT} 已被占用，请关闭占用该端口的服务后重试${NC}"
     exit 1
   fi
-  
+
   echo -e "${GREEN}端口 ${HTTP_PORT} 和 ${HTTPS_PORT} 可用${NC}"
 }
 
 # 安装 acme.sh
 install_acme() {
   echo -e "${YELLOW}正在安装 acme.sh...${NC}"
-  
+
   if [ -f ~/.acme.sh/acme.sh ]; then
     echo -e "${GREEN}acme.sh 已安装，跳过安装步骤${NC}"
   else
@@ -190,7 +190,7 @@ install_acme() {
     }
     echo -e "${GREEN}acme.sh 安装成功${NC}"
   fi
-  
+
   # 设置 acme.sh 别名
   source ~/.bashrc
   alias acme.sh=~/.acme.sh/acme.sh
@@ -199,29 +199,29 @@ install_acme() {
 # 申请证书
 get_certificate() {
   echo -e "${YELLOW}正在为 ${DOMAIN} 申请 SSL 证书...${NC}"
-  
+
   # 停止可能占用 80 端口的服务
   systemctl stop nginx 2>/dev/null
   systemctl stop apache2 2>/dev/null
-  
+
   # 使用 acme.sh 申请证书
   ~/.acme.sh/acme.sh --issue -d "$DOMAIN" --standalone --force --server letsencrypt || {
     echo -e "${RED}申请证书失败${NC}"
     exit 1
   }
-  
+
   echo -e "${GREEN}证书申请成功${NC}"
-  
+
   # 检查证书文件是否存在
   if [ ! -f ~/.acme.sh/"$DOMAIN"_ecc/fullchain.cer ] || [ ! -f ~/.acme.sh/"$DOMAIN"_ecc/"$DOMAIN".key ]; then
     echo -e "${RED}证书文件不存在，请检查 acme.sh 的输出${NC}"
     exit 1
   fi
-  
+
   # 设置证书路径变量
   DOCXY_CERT_PATH=~/.acme.sh/"$DOMAIN"_ecc/fullchain.cer
   DOCXY_KEY_PATH=~/.acme.sh/"$DOMAIN"_ecc/"$DOMAIN".key
-  
+
   echo -e "${GREEN}证书文件已生成:${NC}"
   echo -e "证书: ${YELLOW}$DOCXY_CERT_PATH${NC}"
   echo -e "私钥: ${YELLOW}$DOCXY_KEY_PATH${NC}"
@@ -230,40 +230,40 @@ get_certificate() {
 # 下载 docxy
 download_docxy() {
   echo -e "${YELLOW}正在下载 docxy...${NC}"
-  
+
   # 创建目录
   mkdir -p /usr/local/bin
-  
-  # 检测系统架构
-  ARCH=$(uname -m)
-  if [ "$ARCH" = "x86_64" ]; then
-    BINARY="docxy-linux-amd64"
-  elif [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then
-    BINARY="docxy-linux-arm"
-  else
-    echo -e "${RED}不支持的系统架构: $ARCH${NC}"
-    exit 1
-  fi
-  
+
   # 获取最新版本号
   echo -e "${YELLOW}正在获取最新版本...${NC}"
-  LATEST_VERSION=$(curl -s https://api.github.com/repos/harrisonwang/docxy/releases/latest | grep -oP '"tag_name": "\K(.*)(?=")' || echo "v0.2.0")
+  LATEST_VERSION=$(curl -s https://api.github.com/repos/harrisonwang/docxy/releases/latest | grep -oP '"tag_name": "\K(.*)(?=")' || echo "v0.5.17")
   if [ -z "$LATEST_VERSION" ]; then
-    LATEST_VERSION="v0.2.0"
+    LATEST_VERSION="v0.5.17"
     echo -e "${YELLOW}无法获取最新版本，使用默认版本: $LATEST_VERSION${NC}"
   else
     echo -e "${GREEN}找到最新版本: $LATEST_VERSION${NC}"
   fi
-  
+
+  # 检测系统架构
+  ARCH=$(uname -m)
+  if [ "$ARCH" = "x86_64" ]; then
+    BINARY="docxy-${LATEST_VERSION}-linux-amd64"
+  elif [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then
+    BINARY="docxy-${LATEST_VERSION}-linux-arm64"
+  else
+    echo -e "${RED}不支持的系统架构: $ARCH${NC}"
+    exit 1
+  fi
+
   # 下载二进制文件
   curl -L "https://github.com/harrisonwang/docxy/releases/download/$LATEST_VERSION/$BINARY" -o /usr/local/bin/docxy || {
     echo -e "${RED}下载 docxy 失败${NC}"
     exit 1
   }
-  
+
   # 设置执行权限
   chmod +x /usr/local/bin/docxy
-  
+
   echo -e "${GREEN}docxy 下载成功到 /usr/local/bin/docxy${NC}"
 }
 
@@ -291,7 +291,7 @@ copy_default_config() {
 # 修改systemd服务创建函数
 create_service() {
   echo -e "${YELLOW}正在创建 systemd 服务...${NC}"
-  
+
   cat > /etc/systemd/system/docxy.service << EOF
 [Unit]
 Description=Docker Registry Proxy
@@ -312,17 +312,17 @@ EOF
 
   # 重新加载 systemd
   systemctl daemon-reload
-  
+
   echo -e "${GREEN}systemd 服务创建成功${NC}"
 }
 
 # 启动服务
 start_service() {
   echo -e "${YELLOW}正在启动 docxy 服务...${NC}"
-  
+
   systemctl enable docxy
   systemctl start docxy
-  
+
   # 检查服务状态
   if systemctl is-active --quiet docxy; then
     echo -e "${GREEN}docxy 服务已成功启动${NC}"
@@ -335,7 +335,7 @@ start_service() {
 # 修改显示说明函数
 show_instructions() {
   echo -e "\n${GREEN}=== Docker Registry 代理安装完成 ===${NC}"
-  
+
   if [ "$DEPLOYMENT_MODE" = "nginx" ]; then
     echo -e "\n${YELLOW}Nginx 反向代理配置示例 (请将其保存到您的Nginx配置中):${NC}"
     echo -e "server {"
@@ -362,11 +362,11 @@ show_instructions() {
     echo -e "}"
     echo -e "\n${YELLOW}配置好 Nginx 后，请运行: nginx -t && systemctl reload nginx${NC}"
   fi
-  
+
   echo -e "\n${YELLOW}使用说明:${NC}"
   echo -e "1. 在 Docker 客户端配置文件中添加以下内容:"
   echo -e "   ${GREEN}编辑 /etc/docker/daemon.json:${NC}"
-  
+
   if [ "$DEPLOYMENT_MODE" = "standalone_http" ]; then
     # 独立HTTP模式
     echo -e "   ${YELLOW}{\"registry-mirrors\": [\"http://${DOMAIN}:${HTTP_PORT}\"], \"insecure-registries\": [\"${DOMAIN}:${HTTP_PORT}\"]}${NC}"
@@ -374,7 +374,7 @@ show_instructions() {
     # standalone_https 和 nginx 模式都通过https访问
     echo -e "   ${YELLOW}{\"registry-mirrors\": [\"https://${DOMAIN}\"]}${NC}"
   fi
-  
+
   echo -e "\n2. 重启 Docker 服务:"
   echo -e "   ${YELLOW}systemctl restart docker${NC}\n"
   echo -e "3. 服务管理命令:"
@@ -394,12 +394,12 @@ show_instructions() {
 # 创建 Nginx 配置文件
 create_nginx_config() {
   echo -e "${YELLOW}正在创建 Nginx 配置文件...${NC}"
-  
+
   # 获取Nginx配置目录
   echo -e "${YELLOW}请输入Nginx配置文件目录 (默认: /etc/nginx/conf.d):${NC}"
   read -r NGINX_CONF_INPUT
   NGINX_CONF_DIR=${NGINX_CONF_INPUT:-/etc/nginx/conf.d}
-  
+
   # 确认目录存在
   if [ ! -d "$NGINX_CONF_DIR" ]; then
     echo -e "${RED}目录 ${NGINX_CONF_DIR} 不存在${NC}"
@@ -412,9 +412,9 @@ create_nginx_config() {
       return
     fi
   fi
-  
+
   local NGINX_CONF_FILE="$NGINX_CONF_DIR/${DOMAIN}.conf"
-  
+
   cat > "$NGINX_CONF_FILE" << EOF
 # Docker Registry Proxy 配置
 # 为域名 $DOMAIN 生成的配置文件
@@ -423,7 +423,7 @@ server {
     listen 80;
     listen [::]:80;
     server_name $DOMAIN;
-    
+
     # 将 HTTP 请求重定向到 HTTPS
     location / {
         return 301 https://\$host\$request_uri;
@@ -434,14 +434,14 @@ server {
     listen 443 ssl http2;
     listen [::]:443 ssl http2;
     server_name $DOMAIN;
-    
+
     # SSL 配置
     ssl_certificate $DOCXY_CERT_PATH;
     ssl_certificate_key $DOCXY_KEY_PATH;
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_prefer_server_ciphers on;
     ssl_ciphers 'ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384';
-    
+
     # 代理设置
     location / {
         proxy_pass http://127.0.0.1:$HTTP_PORT;
@@ -449,7 +449,7 @@ server {
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
-        
+
         proxy_read_timeout 300;
         proxy_connect_timeout 60;
         proxy_send_timeout 60;
@@ -463,7 +463,7 @@ EOF
 # 主函数
 main() {
   echo -e "${GREEN}=== Docker Registry 代理安装脚本 ===${NC}\n"
-  
+
   get_domain
   ask_deployment_mode
   set_mode_parameters

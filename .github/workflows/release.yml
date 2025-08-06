@@ -3,7 +3,7 @@ name: 构建与发布
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
   workflow_dispatch:
 
 permissions:
@@ -13,26 +13,26 @@ jobs:
   build-and-release-amd64:
     name: 构建与发布 AMD64
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
-      
+
       - name: 设置 Rust 环境
         uses: dtolnay/rust-toolchain@stable
-      
+
       - name: 构建发布版本
         run: cargo build --release
-      
+
       - name: 准备二进制文件
         run: |
-          cp target/release/docxy docxy-linux-amd64
-          chmod +x docxy-linux-amd64
-      
+          cp target/release/docxy docxy-v${{ steps.get_version.outputs.VERSION }}-linux-amd64
+          chmod +x docxy-v${{ steps.get_version.outputs.VERSION }}-linux-amd64
+
       - name: 获取版本号
         id: get_version
         run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
-      
+
       - name: 创建 Release
         id: create_release
         uses: softprops/action-gh-release@v2
@@ -43,35 +43,35 @@ jobs:
           prerelease: false
           body: |
             Docker Registry 代理服务 v${{ steps.get_version.outputs.VERSION }}
-            
+
             ## 构建版本
             - Linux AMD64 (x86_64)
             - Linux ARM (aarch64)
           files: |
-            ./docxy-linux-amd64
+            ./docxy-v${{ steps.get_version.outputs.VERSION }}-linux-amd64
 
-  build-and-release-arm:
-    name: 构建与发布 ARM
+  build-and-release-arm64:
+    name: 构建与发布 ARM64
     runs-on: ubuntu-22.04-arm
     needs: build-and-release-amd64
-    
+
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
-      
+
       - name: 设置 Rust 环境
         uses: dtolnay/rust-toolchain@stable
-      
+
       - name: 构建发布版本
         run: cargo build --release
-      
+
       - name: 准备二进制文件
         run: |
-          cp target/release/docxy docxy-linux-arm
-          chmod +x docxy-linux-arm
-      
+          cp target/release/docxy docxy-v${{ steps.get_version.outputs.VERSION }}-linux-arm64
+          chmod +x docxy-v${{ steps.get_version.outputs.VERSION }}-linux-arm64
+
       - name: 上传到已存在的 Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            ./docxy-linux-arm
+            ./docxy-v${{ steps.get_version.outputs.VERSION }}-linux-arm64
