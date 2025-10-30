@@ -11,13 +11,20 @@ mod config;
 mod error;
 mod handlers;
 
-
+// 超时配置常量
+const CONNECT_TIMEOUT_SECS: u64 = 30;  // 连接超时：30秒
+const REQUEST_TIMEOUT_SECS: u64 = 3600;  // 请求总超时：1小时，适用于大镜像下载
+const CLIENT_TIMEOUT_SECS: u64 = 3600;  // 客户端超时：1小时
+const CLIENT_DISCONNECT_TIMEOUT_SECS: u64 = 3600;  // 客户端断开超时：1小时
+const KEEP_ALIVE_SECS: u64 = 75;  // Keep-alive：75秒
+const POOL_IDLE_TIMEOUT_SECS: u64 = 90;  // 连接池空闲超时：90秒
 
 lazy_static! {
     pub static ref HTTP_CLIENT: reqwest::Client = reqwest::Client::builder()
         .pool_max_idle_per_host(10)  // 根据负载调整
-        .pool_idle_timeout(Duration::from_secs(90))
-        .timeout(Duration::from_secs(30))
+        .pool_idle_timeout(Duration::from_secs(POOL_IDLE_TIMEOUT_SECS))
+        .connect_timeout(Duration::from_secs(CONNECT_TIMEOUT_SECS))
+        .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
         .build()
         .unwrap();
 }
@@ -116,11 +123,17 @@ async fn main() -> Result<(), AppError> {
             // 如果启用了HTTPS且不在代理后面，HTTP只做重定向
             HttpServer::new(http_redirect_app)
                 .bind(("0.0.0.0", settings.server.http_port))?
+                .client_request_timeout(Duration::from_secs(CLIENT_TIMEOUT_SECS))
+                .client_disconnect_timeout(Duration::from_secs(CLIENT_DISCONNECT_TIMEOUT_SECS))
+                .keep_alive(Duration::from_secs(KEEP_ALIVE_SECS))
                 .run()
         } else {
             // 否则HTTP提供完整功能
             HttpServer::new(http_app)
                 .bind(("0.0.0.0", settings.server.http_port))?
+                .client_request_timeout(Duration::from_secs(CLIENT_TIMEOUT_SECS))
+                .client_disconnect_timeout(Duration::from_secs(CLIENT_DISCONNECT_TIMEOUT_SECS))
+                .keep_alive(Duration::from_secs(KEEP_ALIVE_SECS))
                 .run()
         };
         
@@ -146,6 +159,9 @@ async fn main() -> Result<(), AppError> {
                         .default_service(web::route().to(handlers::handle_invalid_request))  // 添加默认服务处理非法请求
                 })
                     .bind_rustls(("0.0.0.0", settings.server.https_port), rustls_config)?
+                    .client_request_timeout(Duration::from_secs(CLIENT_TIMEOUT_SECS))
+                    .client_disconnect_timeout(Duration::from_secs(CLIENT_DISCONNECT_TIMEOUT_SECS))
+                    .keep_alive(Duration::from_secs(KEEP_ALIVE_SECS))
                     .run();
                 
                 servers.push(https_server);
