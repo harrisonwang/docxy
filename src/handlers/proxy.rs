@@ -93,8 +93,14 @@ pub async fn handle_request(
             .bytes_stream()
             .map(|result| {
                 result.map_err(|err| {
-                    error!("流读取错误: {}", err);
-                    actix_web::error::ErrorInternalServerError(err)
+                    // 检查是否是超时错误
+                    let error_msg = err.to_string();
+                    if error_msg.contains("timeout") || error_msg.contains("deadline") {
+                        error!("流读取超时错误 (可能是镜像过大): {}", err);
+                    } else {
+                        error!("流读取错误: {}", err);
+                    }
+                    actix_web::error::ErrorInternalServerError(format!("数据传输错误: {}", err))
                 })
             });
             

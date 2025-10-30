@@ -358,6 +358,11 @@ show_instructions() {
     echo -e "        proxy_set_header X-Real-IP \$remote_addr;"
     echo -e "        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;"
     echo -e "        proxy_set_header X-Forwarded-Proto \$scheme;"
+    echo -e ""
+    echo -e "        # 超时配置 (支持大镜像下载)"
+    echo -e "        proxy_read_timeout 3600;"
+    echo -e "        proxy_connect_timeout 60;"
+    echo -e "        proxy_send_timeout 300;"
     echo -e "    }"
     echo -e "}"
     echo -e "\n${YELLOW}配置好 Nginx 后，请运行: nginx -t && systemctl reload nginx${NC}"
@@ -450,9 +455,9 @@ server {
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
 
-        proxy_read_timeout 300;
+        proxy_read_timeout 3600;
         proxy_connect_timeout 60;
-        proxy_send_timeout 60;
+        proxy_send_timeout 300;
     }
 }
 EOF
