@@ -187,7 +187,7 @@ This method allows you to get a higher image pull rate by logging in with your D
     ```
 
 2.  **Modify Configuration File**
-    Open `config/default.toml.example`, copy it to `config/default.toml`, then modify the `[server]` section to ensure HTTP service is enabled and HTTPS service is disabled. You can set the port to 8080 to avoid using privileged ports in the development environment.
+    Open `config/default.toml.example`, copy it to `config/default.toml`, then update the config. For local development, run Docxy on local HTTP (8080) and expose an HTTPS public domain via a tunnel.
 
     ```bash
     cp config/default.toml.example config/default.toml
@@ -204,7 +204,19 @@ This method allows you to get a higher image pull rate by logging in with your D
     http_enabled = true   # Enable HTTP
     https_enabled = false # Disable HTTPS
     behind_proxy = true
+    public_base_url = "https://your-dev-domain.example" # Must match the tunnel's public URL
+
+    [registry]
+    upstream_registry = "https://registry-1.docker.io"
+
+    [tls]
+    cert_path = "/tmp/docxy-dev.crt"
+    key_path = "/tmp/docxy-dev.key"
     ```
+
+    Notes:
+    - `public_base_url` must exactly match the real external URL (scheme/domain/port).
+    - When `https_enabled = false`, local cert files are not loaded; however, the current config schema still requires the `[tls]` section, so placeholder paths are fine.
 
 3.  **Run Project**
     Now, you can directly run the project with `cargo`.
@@ -213,7 +225,33 @@ This method allows you to get a higher image pull rate by logging in with your D
     ```
     The service will start and listen on `http://0.0.0.0:8080`.
 
-4.  **Build Release Version**
+4.  **Expose a Public Domain with a Tunnel (for local integration tests)**
+    Start a tunnel in another terminal to forward public traffic to local `8080`. Commands below are examples; check each provider's docs for exact syntax.
+
+    ```bash
+    # ngrok
+    ngrok http 8080
+
+    # tunnl.gg (example)
+    ssh -N -R <subdomain>:80:127.0.0.1:8080 <tunnl-endpoint>
+
+    # localhost.run
+    ssh -N -R 80:127.0.0.1:8080 nokey@localhost.run
+    ```
+
+    Example with a fixed subdomain `dev.edge.ng`:
+    - set `public_base_url` to `https://dev.edge.ng`
+    - run tunnel command: `ssh -N -R dev:80:127.0.0.1:8080 ssh.edge.ng`
+
+5.  **Verify End-to-End Behavior**
+    ```bash
+    curl -i https://your-dev-domain.example/health
+    curl -i https://your-dev-domain.example/v2/
+    curl -i http://127.0.0.1:8080/v2/ -H 'Host: evil.test'
+    ```
+    Expected: the `realm` in `WWW-Authenticate` is fixed to `public_base_url` and is not influenced by the incoming `Host` header.
+
+6.  **Build Release Version**
     ```bash
     cargo build --release
     ```

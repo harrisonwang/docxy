@@ -1,29 +1,29 @@
-
-use actix_web::{web, HttpRequest, HttpResponse, Result};
+use actix_web::{HttpRequest, HttpResponse, Result, web};
+use log::{error, info};
 use std::collections::HashMap;
-use log::{info, error};
 
-use crate::error::AppError;
+use crate::AppState;
 use crate::HTTP_CLIENT;
+use crate::error::AppError;
 
 // 处理 scope 参数中的官方镜像前缀
 fn process_scope_parameter(scope: &str) -> String {
     // scope 格式通常是: repository:image_name:action
     // 例如: repository:hello-world:pull
     // 需要转换为: repository:library/hello-world:pull
-    
+
     let parts: Vec<&str> = scope.split(':').collect();
     if parts.len() == 3 && parts[0] == "repository" {
         let image_name = parts[1];
         let action = parts[2];
-        
+
         // 检查是否为官方镜像（没有命名空间）
         let processed_image_name = if !image_name.contains('/') {
             format!("library/{}", image_name)
         } else {
             image_name.to_string()
         };
-        
+
         format!("repository:{}:{}", processed_image_name, action)
     } else {
         // 非标准格式，保持原样
@@ -79,23 +79,25 @@ pub async fn get_token(req: HttpRequest) -> Result<HttpResponse, AppError> {
     // 发送请求到 Docker Hub 认证服务
     let response = match request_builder.send().await {
         Ok(resp) => {
-            info!("GET {} {:?} {} {}", 
-                auth_url, 
-                req.version(), 
-                resp.status().as_u16(), 
-                resp.status().canonical_reason().unwrap_or("Unknown"));
+            info!(
+                "GET {} {:?} {} {}",
+                auth_url,
+                req.version(),
+                resp.status().as_u16(),
+                resp.status().canonical_reason().unwrap_or("Unknown")
+            );
             resp
-        },
+        }
         Err(e) => {
             error!("GET {} {:?} 失败: {}", auth_url, req.version(), e);
-            return Ok(HttpResponse::InternalServerError()
-                .body("无法连接到 Docker Hub 认证服务"))
+            return Ok(HttpResponse::InternalServerError().body("无法连接到 Docker Hub 认证服务"));
         }
     };
 
     // 获取状态码和响应头
     let status = response.status();
-    let mut builder = HttpResponse::build(actix_web::http::StatusCode::from_u16(status.as_u16()).unwrap());
+    let mut builder =
+        HttpResponse::build(actix_web::http::StatusCode::from_u16(status.as_u16()).unwrap());
 
     // 复制所有响应头
     for (name, value) in response.headers() {
@@ -107,14 +109,16 @@ pub async fn get_token(req: HttpRequest) -> Result<HttpResponse, AppError> {
     // 获取响应体并返回
     match response.bytes().await {
         Ok(bytes) => {
-            info!("{} {} {:?} {} {}", 
-                req.method(), 
-                req.uri(), 
+            info!(
+                "{} {} {:?} {} {}",
+                req.method(),
+                req.uri(),
                 req.version(),
-                status.as_u16(), 
-                status.canonical_reason().unwrap_or("Unknown"));
+                status.as_u16(),
+                status.canonical_reason().unwrap_or("Unknown")
+            );
             Ok(builder.body(bytes))
-        },
+        }
         Err(e) => {
             error!("读取认证服务响应失败: {}", e);
             Ok(HttpResponse::InternalServerError().body("无法读取认证服务响应"))
@@ -123,17 +127,14 @@ pub async fn get_token(req: HttpRequest) -> Result<HttpResponse, AppError> {
 }
 
 pub async fn proxy_challenge(req: HttpRequest) -> Result<HttpResponse, AppError> {
-    let upstream_registry = req.app_data::<web::Data<String>>().unwrap().as_str();
-    let host = match req.connection_info().host() {
-        host if host.contains(':') => host.to_string(),
-        host => host.to_string()
-    };
+    let app_state = req.app_data::<web::Data<AppState>>().unwrap();
+    let upstream_registry = app_state.upstream_registry.as_str();
 
     let request_url = format!("{upstream_registry}/v2/");
-    
+
     // 构建请求，检查是否有 Authorization 头
     let mut request_builder = HTTP_CLIENT.get(&request_url);
-    
+
     // 如果客户端提供了 Authorization 头，转发给上游
     if let Some(auth) = req.headers().get("Authorization") {
         if let Ok(auth_str) = auth.to_str() {
@@ -144,17 +145,18 @@ pub async fn proxy_challenge(req: HttpRequest) -> Result<HttpResponse, AppError>
 
     let response = match request_builder.send().await {
         Ok(resp) => {
-            info!("GET {} {:?} {} {}", 
+            info!(
+                "GET {} {:?} {} {}",
                 request_url,
-                req.version(), 
-                resp.status().as_u16(), 
-                resp.status().canonical_reason().unwrap_or("Unknown"));
+                req.version(),
+                resp.status().as_u16(),
+                resp.status().canonical_reason().unwrap_or("Unknown")
+            );
             resp
-        },
+        }
         Err(e) => {
             error!("GET {} {:?} 失败: {}", request_url, req.version(), e);
-            return Ok(HttpResponse::InternalServerError()
-                      .body("无法连接到上游 Docker Registry"))
+            return Ok(HttpResponse::InternalServerError().body("无法连接到上游 Docker Registry"));
         }
     };
 
@@ -164,15 +166,12 @@ pub async fn proxy_challenge(req: HttpRequest) -> Result<HttpResponse, AppError>
     // 只有在返回 401 时才设置 WWW-Authenticate 头
     if status == 401 {
         let auth_header = format!(
-            "Bearer realm=\"https://{}/auth/token\",service=\"registry.docker.io\"",
-            host
+            "Bearer realm=\"{}/auth/token\",service=\"registry.docker.io\"",
+            app_state.public_base_url
         );
         info!("设置认证头: {}", auth_header);
-        
-        builder.append_header((
-            "WWW-Authenticate",
-            auth_header
-        ));
+
+        builder.append_header(("WWW-Authenticate", auth_header));
     }
 
     let body = match response.text().await {
@@ -183,12 +182,17 @@ pub async fn proxy_challenge(req: HttpRequest) -> Result<HttpResponse, AppError>
         }
     };
 
-    info!("{} {} {:?} {} {}", 
-        req.method(), 
-        req.uri(), 
+    info!(
+        "{} {} {:?} {} {}",
+        req.method(),
+        req.uri(),
         req.version(),
-        status, 
-        actix_web::http::StatusCode::from_u16(status).unwrap().canonical_reason().unwrap_or("Unknown"));
-    
+        status,
+        actix_web::http::StatusCode::from_u16(status)
+            .unwrap()
+            .canonical_reason()
+            .unwrap_or("Unknown")
+    );
+
     Ok(builder.body(body))
 }

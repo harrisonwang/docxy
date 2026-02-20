@@ -4,6 +4,7 @@ https_port = 443
 http_enabled = true
 https_enabled = true
 behind_proxy = false
+public_base_url = "https://docker.example.com"
 
 [registry]
 upstream_registry = "https://registry-1.docker.io"

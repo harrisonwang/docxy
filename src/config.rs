@@ -7,6 +7,8 @@ pub struct ServerSettings {
     pub http_enabled: bool,
     pub https_enabled: bool,
     pub behind_proxy: bool,
+    #[serde(default)]
+    pub public_base_url: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -29,8 +31,8 @@ pub struct Settings {
 
 impl Settings {
     pub fn new() -> Result<Self, config::ConfigError> {
-        let builder = config::Config::builder()
-            .add_source(config::File::with_name("config/default"));
+        let builder =
+            config::Config::builder().add_source(config::File::with_name("config/default"));
 
         builder.build()?.try_deserialize()
     }
