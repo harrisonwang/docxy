@@ -239,8 +239,8 @@ bash <(curl -Ls https://raw.githubusercontent.com/harrisonwang/docxy/main/instal
     ssh -N -R 80:127.0.0.1:8080 nokey@localhost.run
     ```
 
-    例如你使用固定二级域名 `dev.edge.ng` 时：
-    - `public_base_url` 应设置为 `https://dev.edge.ng`
+    例如你使用固定二级域名 `example.com` 时：
+    - `public_base_url` 应设置为 `https://example.com`
     - 隧道命令可用：`ssh -N -R dev:80:127.0.0.1:8080 ssh.edge.ng`
 
 5.  **验证链路**
