@@ -239,8 +239,8 @@ This method allows you to get a higher image pull rate by logging in with your D
     ssh -N -R 80:127.0.0.1:8080 nokey@localhost.run
     ```
 
-    Example with a fixed subdomain `dev.edge.ng`:
-    - set `public_base_url` to `https://dev.edge.ng`
+    Example with a fixed subdomain `example.com`:
+    - set `public_base_url` to `https://example.com`
     - run tunnel command: `ssh -N -R dev:80:127.0.0.1:8080 ssh.edge.ng`
 
 5.  **Verify End-to-End Behavior**
