@@ -1,23 +1,29 @@
 use crate::error::AppError;
-use actix_web::{web, guard, App, HttpServer, Result};
+use actix_web::{App, HttpServer, Result, guard, web};
+use lazy_static::lazy_static;
+use log::{error, info, warn};
 use rustls::{Certificate, PrivateKey, ServerConfig};
 use std::fs::File;
 use std::io::BufReader;
 use std::time::Duration;
-use lazy_static::lazy_static;
-use log::{info, error};
 
 mod config;
 mod error;
 mod handlers;
 
+#[derive(Clone)]
+pub struct AppState {
+    pub upstream_registry: String,
+    pub public_base_url: String,
+}
+
 // 超时配置常量
-const CONNECT_TIMEOUT_SECS: u64 = 30;  // 连接超时：30秒
-const REQUEST_TIMEOUT_SECS: u64 = 3600;  // 请求总超时：1小时，适用于大镜像下载
-const CLIENT_TIMEOUT_SECS: u64 = 3600;  // 客户端超时：1小时
-const CLIENT_DISCONNECT_TIMEOUT_SECS: u64 = 3600;  // 客户端断开超时：1小时
-const KEEP_ALIVE_SECS: u64 = 75;  // Keep-alive：75秒
-const POOL_IDLE_TIMEOUT_SECS: u64 = 90;  // 连接池空闲超时：90秒
+const CONNECT_TIMEOUT_SECS: u64 = 30; // 连接超时：30秒
+const REQUEST_TIMEOUT_SECS: u64 = 3600; // 请求总超时：1小时，适用于大镜像下载
+const CLIENT_TIMEOUT_SECS: u64 = 3600; // 客户端超时：1小时
+const CLIENT_DISCONNECT_TIMEOUT_SECS: u64 = 3600; // 客户端断开超时：1小时
+const KEEP_ALIVE_SECS: u64 = 75; // Keep-alive：75秒
+const POOL_IDLE_TIMEOUT_SECS: u64 = 90; // 连接池空闲超时：90秒
 
 lazy_static! {
     pub static ref HTTP_CLIENT: reqwest::Client = reqwest::Client::builder()
@@ -29,20 +35,17 @@ lazy_static! {
         .unwrap();
 }
 
-
-
 #[actix_web::main]
 async fn main() -> Result<(), AppError> {
     // 使用env_logger的Builder直接设置日志级别
-    env_logger::Builder::from_env(env_logger::Env::default()
-        .default_filter_or("actix_web=info"))
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("actix_web=info"))
         .format(|buf, record| {
-            use std::io::Write;
             use chrono::Local;
-            
+            use std::io::Write;
+
             let level = record.level();
             let mut style_binding = buf.style(); // 先创建绑定
-            let level_style = style_binding  // 使用绑定
+            let level_style = style_binding // 使用绑定
                 .set_bold(true)
                 .set_color(match level {
                     log::Level::Error => env_logger::fmt::Color::Red,
@@ -51,9 +54,9 @@ async fn main() -> Result<(), AppError> {
                     log::Level::Debug => env_logger::fmt::Color::Blue,
                     log::Level::Trace => env_logger::fmt::Color::Cyan,
                 });
-                
+
             let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
-            
+
             writeln!(
                 buf,
                 "[{} {} {}] {}",
@@ -64,28 +67,37 @@ async fn main() -> Result<(), AppError> {
             )
         })
         .init();
-    
-    let settings = config::Settings::new().map_err(|e| AppError::TlsConfig(format!("无法加载配置: {}", e)))?;
+
+    let settings =
+        config::Settings::new().map_err(|e| AppError::TlsConfig(format!("无法加载配置: {}", e)))?;
+    let public_base_url = resolve_public_base_url(&settings.server)?;
 
     // 输出配置信息
     info!("服务器配置:");
     info!("HTTP 端口: {}", settings.server.http_port);
-    
+    info!("对外基准地址: {}", public_base_url);
+
     if settings.server.https_enabled {
         info!("HTTPS 端口: {}", settings.server.https_port);
     } else {
         info!("HTTPS 服务: 已禁用");
     }
-    
+
     if settings.server.behind_proxy {
         info!("代理模式: 已启用");
     }
-    
-    
+    if public_base_url.starts_with("http://") {
+        warn!("server.public_base_url 使用 HTTP，这会降低认证链路安全性，建议改为 HTTPS");
+    }
 
     // 创建应用配置
-    let http_app_data = web::Data::new(settings.registry.upstream_registry.clone());
-    
+    let app_state = web::Data::new(AppState {
+        upstream_registry: settings.registry.upstream_registry.clone(),
+        public_base_url: public_base_url.clone(),
+    });
+    let http_app_data = app_state.clone();
+    let http_redirect_app_data = app_state.clone();
+    let https_app_data = app_state.clone();
 
     let http_app = move || {
         App::new()
@@ -93,30 +105,33 @@ async fn main() -> Result<(), AppError> {
             .route("/v2/", web::get().to(handlers::proxy_challenge))
             .route("/auth/token", web::get().to(handlers::get_token))
             .route("/health", web::get().to(handlers::health_check))
-            .route("/v2/{image_name:.*}/{path_type}/{reference:.+}",
-                   web::route()
-                   .guard(guard::Any(guard::Get()).or(guard::Head()))
-                   .to(handlers::handle_request))
+            .route(
+                "/v2/{image_name:.*}/{path_type}/{reference:.+}",
+                web::route()
+                    .guard(guard::Any(guard::Get()).or(guard::Head()))
+                    .to(handlers::handle_request),
+            )
             .route("/generate_204", web::get().to(handlers::generate_204))
-            .default_service(web::route().to(handlers::handle_invalid_request))  // 添加默认服务处理非法请求
+            .default_service(web::route().to(handlers::handle_invalid_request)) // 添加默认服务处理非法请求
     };
-    
+
     // 创建HTTP重定向应用配置，特殊情况下我们可能仍然希望重定向，而不是拒绝访问
     let http_redirect_app = move || {
         App::new()
+            .app_data(http_redirect_app_data.clone())
             .service(
                 web::scope("/v2")
                     .route("", web::get().to(handlers::redirect_to_https))
-                    .route("/{tail:.*}", web::route().to(handlers::redirect_to_https))
+                    .route("/{tail:.*}", web::route().to(handlers::redirect_to_https)),
             )
             .route("/auth/token", web::get().to(handlers::redirect_to_https))
             .route("/health", web::get().to(handlers::redirect_to_https))
-            .default_service(web::route().to(handlers::handle_invalid_request))  // 非法路径直接拒绝
+            .default_service(web::route().to(handlers::handle_invalid_request)) // 非法路径直接拒绝
     };
-    
+
     // 创建服务器实例
     let mut servers = Vec::new();
-    
+
     // 启动HTTP服务器（如果启用）
     if settings.server.http_enabled {
         let http_server = if !settings.server.behind_proxy && settings.server.https_enabled {
@@ -136,10 +151,10 @@ async fn main() -> Result<(), AppError> {
                 .keep_alive(Duration::from_secs(KEEP_ALIVE_SECS))
                 .run()
         };
-        
+
         servers.push(http_server);
     }
-    
+
     // 启动HTTPS服务器（如果启用）
     if settings.server.https_enabled {
         // 加载TLS配置
@@ -147,25 +162,27 @@ async fn main() -> Result<(), AppError> {
             Ok(rustls_config) => {
                 let https_server = HttpServer::new(move || {
                     App::new()
-                        .app_data(web::Data::new(settings.registry.upstream_registry.clone()))
+                        .app_data(https_app_data.clone())
                         .route("/v2/", web::get().to(handlers::proxy_challenge))
                         .route("/auth/token", web::get().to(handlers::get_token))
                         .route("/health", web::get().to(handlers::health_check))
-                        .route("/v2/{image_name:.*}/{path_type}/{reference:.+}",
-                               web::route()
-                               .guard(guard::Any(guard::Get()).or(guard::Head()))
-                               .to(handlers::handle_request))
+                        .route(
+                            "/v2/{image_name:.*}/{path_type}/{reference:.+}",
+                            web::route()
+                                .guard(guard::Any(guard::Get()).or(guard::Head()))
+                                .to(handlers::handle_request),
+                        )
                         .route("/generate_204", web::get().to(handlers::generate_204))
-                        .default_service(web::route().to(handlers::handle_invalid_request))  // 添加默认服务处理非法请求
+                        .default_service(web::route().to(handlers::handle_invalid_request)) // 添加默认服务处理非法请求
                 })
-                    .bind_rustls(("0.0.0.0", settings.server.https_port), rustls_config)?
-                    .client_request_timeout(Duration::from_secs(CLIENT_TIMEOUT_SECS))
-                    .client_disconnect_timeout(Duration::from_secs(CLIENT_DISCONNECT_TIMEOUT_SECS))
-                    .keep_alive(Duration::from_secs(KEEP_ALIVE_SECS))
-                    .run();
-                
+                .bind_rustls(("0.0.0.0", settings.server.https_port), rustls_config)?
+                .client_request_timeout(Duration::from_secs(CLIENT_TIMEOUT_SECS))
+                .client_disconnect_timeout(Duration::from_secs(CLIENT_DISCONNECT_TIMEOUT_SECS))
+                .keep_alive(Duration::from_secs(KEEP_ALIVE_SECS))
+                .run();
+
                 servers.push(https_server);
-            },
+            }
             Err(e) => {
                 error!("无法加载TLS配置: {}", e);
                 if !settings.server.http_enabled {
@@ -176,70 +193,148 @@ async fn main() -> Result<(), AppError> {
             }
         }
     }
-    
+
     // 确保至少有一个服务器在运行
     if servers.is_empty() {
         return Err(AppError::TlsConfig(
             "HTTP和HTTPS服务均已禁用，无法启动服务器".to_string(),
         ));
     }
-    
+
     // 等待所有服务器完成
     futures::future::join_all(servers).await;
-    
+
     Ok(())
 }
+fn resolve_public_base_url(server: &config::ServerSettings) -> Result<String, AppError> {
+    if let Some(configured) = server.public_base_url.as_deref() {
+        let trimmed = configured.trim();
+        if !trimmed.is_empty() {
+            return normalize_public_base_url(trimmed);
+        }
+    }
 
+    let fallback = if server.https_enabled {
+        if server.https_port == 443 {
+            "https://localhost".to_string()
+        } else {
+            format!("https://localhost:{}", server.https_port)
+        }
+    } else if server.http_enabled {
+        if server.http_port == 80 {
+            "http://localhost".to_string()
+        } else {
+            format!("http://localhost:{}", server.http_port)
+        }
+    } else {
+        return Err(AppError::TlsConfig(
+            "server.public_base_url 未配置，且 HTTP/HTTPS 均禁用，无法推导默认值".to_string(),
+        ));
+    };
 
+    warn!(
+        "server.public_base_url 未配置，已回退为 {}。建议尽快在配置中显式设置公网访问地址。",
+        fallback
+    );
+    Ok(fallback)
+}
+
+// 校验并规范化对外基准地址，避免将请求头中的 Host 用于安全敏感响应
+fn normalize_public_base_url(raw_url: &str) -> Result<String, AppError> {
+    let mut parsed = reqwest::Url::parse(raw_url)
+        .map_err(|e| AppError::TlsConfig(format!("server.public_base_url 无效: {e}")))?;
+
+    match parsed.scheme() {
+        "http" | "https" => {}
+        _ => {
+            return Err(AppError::TlsConfig(
+                "server.public_base_url 仅支持 http 或 https 协议".to_string(),
+            ));
+        }
+    }
+
+    if parsed.host_str().is_none() {
+        return Err(AppError::TlsConfig(
+            "server.public_base_url 必须包含主机名".to_string(),
+        ));
+    }
+
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        return Err(AppError::TlsConfig(
+            "server.public_base_url 不能包含用户认证信息".to_string(),
+        ));
+    }
+
+    if parsed.query().is_some() || parsed.fragment().is_some() {
+        return Err(AppError::TlsConfig(
+            "server.public_base_url 不能包含查询参数或锚点".to_string(),
+        ));
+    }
+
+    if parsed.path() != "/" {
+        return Err(AppError::TlsConfig(
+            "server.public_base_url 不能包含路径".to_string(),
+        ));
+    }
+
+    parsed.set_path("");
+    Ok(parsed.as_str().trim_end_matches('/').to_string())
+}
 
 // 修改证书加载函数，使用环境变量配置证书路径
 fn load_rustls_config(settings: &config::Settings) -> Result<ServerConfig, AppError> {
     // 从环境变量获取证书路径，如果未设置则使用默认值
     let cert_path = &settings.tls.cert_path;
     let key_path = &settings.tls.key_path;
-    
+
     info!("正在加载证书: {}", cert_path);
     info!("正在加载私钥: {}", key_path);
-    
+
     // 读取证书和密钥文件
-    let cert_file = &mut BufReader::new(File::open(&cert_path)
-        .map_err(|e| AppError::TlsConfig(format!("无法打开证书文件 {cert_path}: {e}")))?);
-    
-    let key_file = &mut BufReader::new(File::open(&key_path)
-        .map_err(|e| AppError::TlsConfig(format!("无法打开私钥文件 {key_path}: {e}")))?);
-    
+    let cert_file = &mut BufReader::new(
+        File::open(&cert_path)
+            .map_err(|e| AppError::TlsConfig(format!("无法打开证书文件 {cert_path}: {e}")))?,
+    );
+
+    let key_file = &mut BufReader::new(
+        File::open(&key_path)
+            .map_err(|e| AppError::TlsConfig(format!("无法打开私钥文件 {key_path}: {e}")))?,
+    );
+
     // 解析证书
     let cert_chain = rustls_pemfile::certs(cert_file)?
         .into_iter()
         .map(Certificate)
         .collect();
-    
+
     // 尝试解析私钥（支持多种格式）
     let mut keys = rustls_pemfile::ec_private_keys(key_file)?;
-    
+
     // 如果没有找到 ECC 私钥，尝试读取 RSA 私钥
     if keys.is_empty() {
         // 需要重新打开文件，因为前面的读取已经消耗了文件内容
         let key_file = &mut BufReader::new(File::open(&key_path)?);
         keys = rustls_pemfile::rsa_private_keys(key_file)?;
     }
-    
+
     // 如果仍然没有找到私钥，尝试读取 PKCS8 格式的私钥
     if keys.is_empty() {
         let key_file = &mut BufReader::new(File::open(&key_path)?);
         keys = rustls_pemfile::pkcs8_private_keys(key_file)?;
     }
-    
+
     if keys.is_empty() {
-        return Err(AppError::TlsConfig("无法读取私钥，支持的格式：ECC、RSA 或 PKCS8".into()));
+        return Err(AppError::TlsConfig(
+            "无法读取私钥，支持的格式：ECC、RSA 或 PKCS8".into(),
+        ));
     }
-    
+
     // 构建 TLS 配置
     let config = ServerConfig::builder()
         .with_safe_defaults()
         .with_no_client_auth()
         .with_single_cert(cert_chain, PrivateKey(keys[0].clone()))?;
-    
+
     info!("成功加载证书和私钥");
     Ok(config)
 }

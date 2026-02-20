@@ -187,7 +187,7 @@ bash <(curl -Ls https://raw.githubusercontent.com/harrisonwang/docxy/main/instal
     ```
 
 2.  **修改配置文件**
-    打开 `config/default.toml.example`，复制为 `config/default.toml`，然后修改 `[server]` 部分，确保 HTTP 服务被启用，HTTPS 服务被禁用。您可以将端口设置为 8080，以避免在开发环境中使用特权端口。
+    打开 `config/default.toml.example`，复制为 `config/default.toml`，然后修改配置。开发调试时建议本地跑 HTTP（8080），通过 Tunnel 对外提供 HTTPS 域名。
 
     ```bash
     cp config/default.toml.example config/default.toml
@@ -204,7 +204,19 @@ bash <(curl -Ls https://raw.githubusercontent.com/harrisonwang/docxy/main/instal
     http_enabled = true   # 启用 HTTP
     https_enabled = false # 禁用 HTTPS
     behind_proxy = true
+    public_base_url = "https://your-dev-domain.example" # 必须填写 Tunnel 暴露给外网的地址
+
+    [registry]
+    upstream_registry = "https://registry-1.docker.io"
+
+    [tls]
+    cert_path = "/tmp/docxy-dev.crt"
+    key_path = "/tmp/docxy-dev.key"
     ```
+
+    说明：
+    - `public_base_url` 必须与外部真实访问地址完全一致（协议/域名/端口）。
+    - 当 `https_enabled = false` 时，本地不会读取证书文件；但当前配置结构仍要求保留 `[tls]` 字段，可使用占位路径。
 
 3.  **运行项目**
     现在，可以直接用 `cargo` 运行项目。
@@ -213,7 +225,33 @@ bash <(curl -Ls https://raw.githubusercontent.com/harrisonwang/docxy/main/instal
     ```
     服务将启动并监听在 `http://0.0.0.0:8080`。
 
-4.  **构建发布版本**
+4.  **通过 Tunnel 暴露公网域名（便于本地联调）**
+    在另一个终端启动隧道，将公网请求转发到本地 `8080`。以下命令为示例，具体参数以各服务商文档为准。
+
+    ```bash
+    # ngrok
+    ngrok http 8080
+
+    # tunnl.gg（示例）
+    ssh -N -R <subdomain>:80:127.0.0.1:8080 <tunnl-endpoint>
+
+    # localhost.run
+    ssh -N -R 80:127.0.0.1:8080 nokey@localhost.run
+    ```
+
+    例如你使用固定二级域名 `dev.edge.ng` 时：
+    - `public_base_url` 应设置为 `https://dev.edge.ng`
+    - 隧道命令可用：`ssh -N -R dev:80:127.0.0.1:8080 ssh.edge.ng`
+
+5.  **验证链路**
+    ```bash
+    curl -i https://your-dev-domain.example/health
+    curl -i https://your-dev-domain.example/v2/
+    curl -i http://127.0.0.1:8080/v2/ -H 'Host: evil.test'
+    ```
+    预期：`WWW-Authenticate` 中的 `realm` 固定指向 `public_base_url`，不受 `Host` 头影响。
+
+6.  **构建发布版本**
     ```bash
     cargo build --release
     ```

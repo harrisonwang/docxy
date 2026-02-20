@@ -13,6 +13,7 @@ DOCXY_KEY_PATH=""
 HTTP_PORT=80
 HTTPS_PORT=443
 DEPLOYMENT_MODE=""
+PUBLIC_BASE_URL=""
 
 # 检查是否以 root 权限运行
 if [ "$EUID" -ne 0 ]; then
@@ -132,6 +133,7 @@ set_mode_parameters() {
       HTTP_ENABLED=true # HTTP用于重定向
       HTTP_PORT=80
       HTTPS_PORT=443
+      PUBLIC_BASE_URL="https://${DOMAIN}"
       echo -e "${GREEN}将直接提供服务，使用标准端口 80/443${NC}"
       ask_certificate_option
       ;;
@@ -139,6 +141,7 @@ set_mode_parameters() {
       BEHIND_PROXY=true
       HTTPS_ENABLED=false # docxy本身不处理https
       HTTP_ENABLED=true
+      PUBLIC_BASE_URL="https://${DOMAIN}"
       echo -e "${YELLOW}请输入 docxy 后端监听的HTTP端口 (默认: 9000):${NC}"
       read -r HTTP_PORT_INPUT
       HTTP_PORT=${HTTP_PORT_INPUT:-9000}
@@ -153,6 +156,11 @@ set_mode_parameters() {
       read -r HTTP_PORT_INPUT
       HTTP_PORT=${HTTP_PORT_INPUT:-80}
       HTTPS_PORT=443 # 保持一个值，即使禁用
+      if [ "$HTTP_PORT" = "80" ]; then
+        PUBLIC_BASE_URL="http://${DOMAIN}"
+      else
+        PUBLIC_BASE_URL="http://${DOMAIN}:${HTTP_PORT}"
+      fi
       echo -e "${GREEN}将在独立模式下运行，HTTP端口: ${HTTP_PORT}${NC}"
       ;;
   esac
@@ -282,6 +290,7 @@ copy_default_config() {
   sed -i "s/^http_enabled = .*/http_enabled = ${HTTP_ENABLED}/" /etc/docxy/config/default.toml
   sed -i "s/^https_enabled = .*/https_enabled = ${HTTPS_ENABLED}/" /etc/docxy/config/default.toml
   sed -i "s/^behind_proxy = .*/behind_proxy = ${BEHIND_PROXY}/" /etc/docxy/config/default.toml
+  sed -i "s#^public_base_url = .*#public_base_url = \"${PUBLIC_BASE_URL}\"#" /etc/docxy/config/default.toml
   sed -i "s#^cert_path = .*#cert_path = \"${DOCXY_CERT_PATH}\"#" /etc/docxy/config/default.toml
   sed -i "s#^key_path = .*#key_path = \"${DOCXY_KEY_PATH}\"#" /etc/docxy/config/default.toml
 
