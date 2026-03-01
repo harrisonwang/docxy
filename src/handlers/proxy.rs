@@ -1,10 +1,38 @@
-use actix_web::{HttpRequest, HttpResponse, Result, web};
-use futures::stream::StreamExt;
+use actix_web::{HttpRequest, HttpResponse, Result, http::header, web};
+use futures::stream::{StreamExt, empty};
 use log::{error, info};
 
 use crate::AppState;
 use crate::HTTP_CLIENT;
 use crate::error::AppError;
+
+fn append_forward_headers(
+    mut request_builder: reqwest::RequestBuilder,
+    req: &HttpRequest,
+) -> reqwest::RequestBuilder {
+    // Docker pull 在断点/重试场景会大量依赖 Range。
+    // 若不透传，httpReadSeeker 可能拿不到预期分片，导致后续拉层失败。
+    const FORWARDED_HEADERS: [&str; 8] = [
+        "Authorization",
+        "Accept",
+        "Range",
+        "If-Range",
+        "If-Match",
+        "If-None-Match",
+        "If-Modified-Since",
+        "If-Unmodified-Since",
+    ];
+
+    for header_name in FORWARDED_HEADERS {
+        for value in req.headers().get_all(header_name) {
+            if let Ok(value_str) = value.to_str() {
+                request_builder = request_builder.header(header_name, value_str);
+            }
+        }
+    }
+
+    request_builder
+}
 
 pub async fn handle_request(
     req: HttpRequest,
@@ -12,48 +40,42 @@ pub async fn handle_request(
 ) -> Result<HttpResponse, AppError> {
     let app_state = req.app_data::<web::Data<AppState>>().unwrap();
     let upstream_registry = app_state.upstream_registry.as_str();
-    // 获取路径参数
     let (image_name, path_type, reference) = path.into_inner();
 
-    // 处理官方镜像的 library/ 前缀
     let processed_image_name = if !image_name.contains('/') {
         format!("library/{}", image_name)
     } else {
         image_name
     };
 
-    // 使用处理后的镜像名构建目标URL
-    let path = format!("/v2/{processed_image_name}/{path_type}/{reference}");
+    let is_manifest_request = path_type == "manifests";
+    let client_is_head = req.method() == actix_web::http::Method::HEAD;
+    // Docker 29 对 manifest descriptor 的 size 校验更严格。
+    // 对客户端 HEAD manifest 请求，直接对上游发 GET，更稳定地拿到 manifest 元信息。
+    let use_get_for_upstream = client_is_head && is_manifest_request;
 
-    // 构建请求，根据原始请求的方法选择 HEAD 或 GET
+    let path = format!("/v2/{processed_image_name}/{path_type}/{reference}");
     let target_url = format!("{upstream_registry}{path}");
-    let mut request_builder = if req.method() == actix_web::http::Method::HEAD {
+
+    let request_builder = if use_get_for_upstream {
+        HTTP_CLIENT.get(&target_url)
+    } else if client_is_head {
         HTTP_CLIENT.head(&target_url)
     } else {
         HTTP_CLIENT.get(&target_url)
     };
+    let request_builder = append_forward_headers(request_builder, &req);
 
-    // 添加认证头
-    if let Some(auth) = req.headers().get("Authorization") {
-        if let Ok(auth_str) = auth.to_str() {
-            request_builder = request_builder.header("Authorization", auth_str);
-        }
-    }
-
-    // 添加所有 Accept 头
-    for accept in req.headers().get_all("Accept") {
-        if let Ok(accept_str) = accept.to_str() {
-            request_builder = request_builder.header("Accept", accept_str);
-        }
-    }
-
-    // 发送请求到 Docker Registry
-    let method = req.method().as_str();
+    let method_for_log = if use_get_for_upstream {
+        "GET"
+    } else {
+        req.method().as_str()
+    };
     let response = match request_builder.send().await {
         Ok(resp) => {
             info!(
                 "{} {} {:?} {} {}",
-                method,
+                method_for_log,
                 target_url,
                 req.version(),
                 resp.status().as_u16(),
@@ -62,25 +84,73 @@ pub async fn handle_request(
             resp
         }
         Err(e) => {
-            error!("{} {} {:?} 失败: {}", method, target_url, req.version(), e);
+            error!(
+                "{} {} {:?} 失败: {}",
+                method_for_log,
+                target_url,
+                req.version(),
+                e
+            );
             return Ok(HttpResponse::InternalServerError()
                 .body(format!("无法连接到 Docker Registry: {e}")));
         }
     };
 
-    // 获取状态码和响应头
     let status = response.status();
-    let mut builder =
-        HttpResponse::build(actix_web::http::StatusCode::from_u16(status.as_u16()).unwrap());
+    let response_headers: Vec<(String, String)> = response
+        .headers()
+        .iter()
+        .filter_map(|(name, value)| {
+            value
+                .to_str()
+                .ok()
+                .map(|value_str| (name.as_str().to_string(), value_str.to_string()))
+        })
+        .collect();
 
-    // 复制所有响应头
-    for (name, value) in response.headers() {
-        if let Ok(value_str) = value.to_str() {
-            builder.append_header((name.as_str(), value_str));
+    if client_is_head {
+        let mut builder =
+            HttpResponse::build(actix_web::http::StatusCode::from_u16(status.as_u16()).unwrap());
+        let effective_content_length = response.content_length();
+
+        // 不在代理层读取整个 manifest 来手动计算长度，避免额外复杂度和开销。
+        // 我们仅使用上游返回的 Content-Length；若上游缺失该头，则不在此处强行补算。
+        if is_manifest_request && status.is_success() && effective_content_length.unwrap_or(0) == 0
+        {
+            info!("manifest 响应缺少有效 Content-Length，保持上游语义透传，不进行代理侧补算");
         }
+
+        for (name, value) in response_headers {
+            if name.eq_ignore_ascii_case("content-length") {
+                continue;
+            }
+            builder.append_header((name, value));
+        }
+
+        if let Some(content_length) = effective_content_length {
+            builder.insert_header((header::CONTENT_LENGTH, content_length.to_string()));
+            builder.no_chunking(content_length);
+        }
+
+        info!(
+            "{} {} {:?} {} {}",
+            req.method(),
+            req.uri(),
+            req.version(),
+            status.as_u16(),
+            status.canonical_reason().unwrap_or("Unknown")
+        );
+
+        let empty_stream = empty::<Result<web::Bytes, actix_web::Error>>();
+        return Ok(builder.streaming(empty_stream));
     }
 
-    // 记录响应日志
+    let mut builder =
+        HttpResponse::build(actix_web::http::StatusCode::from_u16(status.as_u16()).unwrap());
+    for (name, value) in response_headers {
+        builder.append_header((name, value));
+    }
+
     info!(
         "{} {} {:?} {} {}",
         req.method(),
@@ -90,25 +160,17 @@ pub async fn handle_request(
         status.canonical_reason().unwrap_or("Unknown")
     );
 
-    // 根据请求方法处理响应
-    if req.method() == actix_web::http::Method::HEAD {
-        // HEAD 请求，不需要返回响应体
-        Ok(builder.finish())
-    } else {
-        // GET 请求，使用流式传输响应体
-        let stream = response.bytes_stream().map(|result| {
-            result.map_err(|err| {
-                // 检查是否是超时错误
-                let error_msg = err.to_string();
-                if error_msg.contains("timeout") || error_msg.contains("deadline") {
-                    error!("流读取超时错误 (可能是镜像过大): {}", err);
-                } else {
-                    error!("流读取错误: {}", err);
-                }
-                actix_web::error::ErrorInternalServerError(format!("数据传输错误: {}", err))
-            })
-        });
+    let stream = response.bytes_stream().map(|result| {
+        result.map_err(|err| {
+            let error_msg = err.to_string();
+            if error_msg.contains("timeout") || error_msg.contains("deadline") {
+                error!("流读取超时错误 (可能是镜像过大): {}", err);
+            } else {
+                error!("流读取错误: {}", err);
+            }
+            actix_web::error::ErrorInternalServerError(format!("数据传输错误: {}", err))
+        })
+    });
 
-        Ok(builder.streaming(stream))
-    }
+    Ok(builder.streaming(stream))
 }
