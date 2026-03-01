@@ -1,4 +1,4 @@
-use actix_web::{HttpRequest, HttpResponse, Result, web};
+use actix_web::{HttpRequest, HttpResponse, Result, http::header, web};
 use futures::stream::StreamExt;
 use log::{error, info};
 
@@ -21,6 +21,8 @@ pub async fn handle_request(
     } else {
         image_name
     };
+
+    let is_manifest_request = path_type == "manifests";
 
     // 使用处理后的镜像名构建目标URL
     let path = format!("/v2/{processed_image_name}/{path_type}/{reference}");
@@ -73,10 +75,66 @@ pub async fn handle_request(
     let mut builder =
         HttpResponse::build(actix_web::http::StatusCode::from_u16(status.as_u16()).unwrap());
 
+    // 如果 HEAD manifest 返回的 Content-Length 为 0 或缺失，Docker 29 会将 descriptor size 解析为 0。
+    // 这里在必要时回退执行一次 GET 读取真实 manifest 大小，并写回 Content-Length。
+    let mut effective_content_length = response.content_length();
+    if req.method() == actix_web::http::Method::HEAD
+        && is_manifest_request
+        && effective_content_length.unwrap_or(0) == 0
+        && status.is_success()
+    {
+        let mut fallback_get = HTTP_CLIENT.get(&target_url);
+
+        if let Some(auth) = req.headers().get("Authorization") {
+            if let Ok(auth_str) = auth.to_str() {
+                fallback_get = fallback_get.header("Authorization", auth_str);
+            }
+        }
+
+        for accept in req.headers().get_all("Accept") {
+            if let Ok(accept_str) = accept.to_str() {
+                fallback_get = fallback_get.header("Accept", accept_str);
+            }
+        }
+
+        match fallback_get.send().await {
+            Ok(fallback_resp) => match fallback_resp.bytes().await {
+                Ok(bytes) => {
+                    let computed_len = bytes.len() as u64;
+                    if computed_len > 0 {
+                        effective_content_length = Some(computed_len);
+                        info!(
+                            "HEAD manifest Content-Length 缺失或为 0，已通过 GET 回退计算长度: {}",
+                            computed_len
+                        );
+                    }
+                }
+                Err(e) => {
+                    error!("回退 GET 读取 manifest 内容失败: {}", e);
+                }
+            },
+            Err(e) => {
+                error!("回退 GET 请求 manifest 失败: {}", e);
+            }
+        }
+    }
+
     // 复制所有响应头
     for (name, value) in response.headers() {
+        if req.method() == actix_web::http::Method::HEAD
+            && name.as_str().eq_ignore_ascii_case("content-length")
+        {
+            continue;
+        }
+
         if let Ok(value_str) = value.to_str() {
             builder.append_header((name.as_str(), value_str));
+        }
+    }
+
+    if req.method() == actix_web::http::Method::HEAD {
+        if let Some(content_length) = effective_content_length {
+            builder.insert_header((header::CONTENT_LENGTH, content_length.to_string()));
         }
     }
 
