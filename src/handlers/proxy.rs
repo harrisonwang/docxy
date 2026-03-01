@@ -111,27 +111,13 @@ pub async fn handle_request(
     if client_is_head {
         let mut builder =
             HttpResponse::build(actix_web::http::StatusCode::from_u16(status.as_u16()).unwrap());
-        let mut effective_content_length = response.content_length();
+        let effective_content_length = response.content_length();
 
-        // 极端情况下上游 GET 也未提供 Content-Length，且我们正要返回 HEAD。
-        // 此时读取 manifest body 仅用于计算长度，不会把 body 返回给客户端。
+        // 不在代理层读取整个 manifest 来手动计算长度，避免额外复杂度和开销。
+        // 我们仅使用上游返回的 Content-Length；若上游缺失该头，则不在此处强行补算。
         if is_manifest_request && status.is_success() && effective_content_length.unwrap_or(0) == 0
         {
-            match response.bytes().await {
-                Ok(bytes) => {
-                    let computed_len = bytes.len() as u64;
-                    if computed_len > 0 {
-                        effective_content_length = Some(computed_len);
-                        info!(
-                            "manifest Content-Length 缺失或为 0，已通过上游 GET 计算长度: {}",
-                            computed_len
-                        );
-                    }
-                }
-                Err(e) => {
-                    error!("读取 manifest 内容用于长度计算失败: {}", e);
-                }
-            }
+            info!("manifest 响应缺少有效 Content-Length，保持上游语义透传，不进行代理侧补算");
         }
 
         for (name, value) in response_headers {
