@@ -363,15 +363,22 @@ show_instructions() {
     echo -e ""
     echo -e "    location / {"
     echo -e "        proxy_pass http://127.0.0.1:${HTTP_PORT};"
+    echo -e "        proxy_http_version 1.1;"
     echo -e "        proxy_set_header Host \$host;"
+    echo -e "        proxy_set_header Connection \"\";"
     echo -e "        proxy_set_header X-Real-IP \$remote_addr;"
     echo -e "        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;"
     echo -e "        proxy_set_header X-Forwarded-Proto \$scheme;"
     echo -e ""
+    echo -e "        # Docker Registry 大流式下载优化"
+    echo -e "        proxy_buffering off;"
+    echo -e "        proxy_request_buffering off;"
+    echo -e "        gzip off;"
+    echo -e ""
     echo -e "        # 超时配置 (支持大镜像下载)"
     echo -e "        proxy_read_timeout 3600;"
     echo -e "        proxy_connect_timeout 60;"
-    echo -e "        proxy_send_timeout 300;"
+    echo -e "        proxy_send_timeout 3600;"
     echo -e "    }"
     echo -e "}"
     echo -e "\n${YELLOW}配置好 Nginx 后，请运行: nginx -t && systemctl reload nginx${NC}"
@@ -459,14 +466,21 @@ server {
     # 代理设置
     location / {
         proxy_pass http://127.0.0.1:$HTTP_PORT;
+        proxy_http_version 1.1;
         proxy_set_header Host \$host;
+        proxy_set_header Connection "";
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
 
+        # Docker Registry 大流式下载优化
+        proxy_buffering off;
+        proxy_request_buffering off;
+        gzip off;
+
         proxy_read_timeout 3600;
         proxy_connect_timeout 60;
-        proxy_send_timeout 300;
+        proxy_send_timeout 3600;
     }
 }
 EOF
