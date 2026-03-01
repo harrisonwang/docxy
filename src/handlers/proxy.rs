@@ -1,5 +1,5 @@
 use actix_web::{HttpRequest, HttpResponse, Result, http::header, web};
-use futures::stream::StreamExt;
+use futures::stream::{StreamExt, empty};
 use log::{error, info};
 
 use crate::AppState;
@@ -150,8 +150,14 @@ pub async fn handle_request(
 
     // 根据请求方法处理响应
     if req.method() == actix_web::http::Method::HEAD {
-        // HEAD 请求，不需要返回响应体
-        Ok(builder.finish())
+        // HEAD 请求不返回消息体，但需要保留准确的 Content-Length。
+        // 使用空流 + no_chunking，避免框架将 Content-Length 强制写成 0。
+        if let Some(content_length) = effective_content_length {
+            builder.no_chunking(content_length);
+        }
+
+        let empty_stream = empty::<Result<web::Bytes, actix_web::Error>>();
+        Ok(builder.streaming(empty_stream))
     } else {
         // GET 请求，使用流式传输响应体
         let stream = response.bytes_stream().map(|result| {
