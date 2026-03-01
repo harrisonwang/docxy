@@ -6,16 +6,33 @@ use crate::AppState;
 use crate::HTTP_CLIENT;
 use crate::error::AppError;
 
+fn append_forward_headers(
+    mut request_builder: reqwest::RequestBuilder,
+    req: &HttpRequest,
+) -> reqwest::RequestBuilder {
+    if let Some(auth) = req.headers().get("Authorization") {
+        if let Ok(auth_str) = auth.to_str() {
+            request_builder = request_builder.header("Authorization", auth_str);
+        }
+    }
+
+    for accept in req.headers().get_all("Accept") {
+        if let Ok(accept_str) = accept.to_str() {
+            request_builder = request_builder.header("Accept", accept_str);
+        }
+    }
+
+    request_builder
+}
+
 pub async fn handle_request(
     req: HttpRequest,
     path: web::Path<(String, String, String)>,
 ) -> Result<HttpResponse, AppError> {
     let app_state = req.app_data::<web::Data<AppState>>().unwrap();
     let upstream_registry = app_state.upstream_registry.as_str();
-    // 获取路径参数
     let (image_name, path_type, reference) = path.into_inner();
 
-    // 处理官方镜像的 library/ 前缀
     let processed_image_name = if !image_name.contains('/') {
         format!("library/{}", image_name)
     } else {
@@ -23,39 +40,33 @@ pub async fn handle_request(
     };
 
     let is_manifest_request = path_type == "manifests";
+    let client_is_head = req.method() == actix_web::http::Method::HEAD;
+    // Docker 29 对 manifest descriptor 的 size 校验更严格。
+    // 对客户端 HEAD manifest 请求，直接对上游发 GET，更稳定地拿到 manifest 元信息。
+    let use_get_for_upstream = client_is_head && is_manifest_request;
 
-    // 使用处理后的镜像名构建目标URL
     let path = format!("/v2/{processed_image_name}/{path_type}/{reference}");
-
-    // 构建请求，根据原始请求的方法选择 HEAD 或 GET
     let target_url = format!("{upstream_registry}{path}");
-    let mut request_builder = if req.method() == actix_web::http::Method::HEAD {
+
+    let request_builder = if use_get_for_upstream {
+        HTTP_CLIENT.get(&target_url)
+    } else if client_is_head {
         HTTP_CLIENT.head(&target_url)
     } else {
         HTTP_CLIENT.get(&target_url)
     };
+    let request_builder = append_forward_headers(request_builder, &req);
 
-    // 添加认证头
-    if let Some(auth) = req.headers().get("Authorization") {
-        if let Ok(auth_str) = auth.to_str() {
-            request_builder = request_builder.header("Authorization", auth_str);
-        }
-    }
-
-    // 添加所有 Accept 头
-    for accept in req.headers().get_all("Accept") {
-        if let Ok(accept_str) = accept.to_str() {
-            request_builder = request_builder.header("Accept", accept_str);
-        }
-    }
-
-    // 发送请求到 Docker Registry
-    let method = req.method().as_str();
+    let method_for_log = if use_get_for_upstream {
+        "GET"
+    } else {
+        req.method().as_str()
+    };
     let response = match request_builder.send().await {
         Ok(resp) => {
             info!(
                 "{} {} {:?} {} {}",
-                method,
+                method_for_log,
                 target_url,
                 req.version(),
                 resp.status().as_u16(),
@@ -64,81 +75,87 @@ pub async fn handle_request(
             resp
         }
         Err(e) => {
-            error!("{} {} {:?} 失败: {}", method, target_url, req.version(), e);
+            error!(
+                "{} {} {:?} 失败: {}",
+                method_for_log,
+                target_url,
+                req.version(),
+                e
+            );
             return Ok(HttpResponse::InternalServerError()
                 .body(format!("无法连接到 Docker Registry: {e}")));
         }
     };
 
-    // 获取状态码和响应头
     let status = response.status();
-    let mut builder =
-        HttpResponse::build(actix_web::http::StatusCode::from_u16(status.as_u16()).unwrap());
+    let response_headers: Vec<(String, String)> = response
+        .headers()
+        .iter()
+        .filter_map(|(name, value)| {
+            value
+                .to_str()
+                .ok()
+                .map(|value_str| (name.as_str().to_string(), value_str.to_string()))
+        })
+        .collect();
 
-    // 如果 HEAD manifest 返回的 Content-Length 为 0 或缺失，Docker 29 会将 descriptor size 解析为 0。
-    // 这里在必要时回退执行一次 GET 读取真实 manifest 大小，并写回 Content-Length。
-    let mut effective_content_length = response.content_length();
-    if req.method() == actix_web::http::Method::HEAD
-        && is_manifest_request
-        && effective_content_length.unwrap_or(0) == 0
-        && status.is_success()
-    {
-        let mut fallback_get = HTTP_CLIENT.get(&target_url);
+    if client_is_head {
+        let mut builder =
+            HttpResponse::build(actix_web::http::StatusCode::from_u16(status.as_u16()).unwrap());
+        let mut effective_content_length = response.content_length();
 
-        if let Some(auth) = req.headers().get("Authorization") {
-            if let Ok(auth_str) = auth.to_str() {
-                fallback_get = fallback_get.header("Authorization", auth_str);
-            }
-        }
-
-        for accept in req.headers().get_all("Accept") {
-            if let Ok(accept_str) = accept.to_str() {
-                fallback_get = fallback_get.header("Accept", accept_str);
-            }
-        }
-
-        match fallback_get.send().await {
-            Ok(fallback_resp) => match fallback_resp.bytes().await {
+        // 极端情况下上游 GET 也未提供 Content-Length，且我们正要返回 HEAD。
+        // 此时读取 manifest body 仅用于计算长度，不会把 body 返回给客户端。
+        if is_manifest_request && status.is_success() && effective_content_length.unwrap_or(0) == 0
+        {
+            match response.bytes().await {
                 Ok(bytes) => {
                     let computed_len = bytes.len() as u64;
                     if computed_len > 0 {
                         effective_content_length = Some(computed_len);
                         info!(
-                            "HEAD manifest Content-Length 缺失或为 0，已通过 GET 回退计算长度: {}",
+                            "manifest Content-Length 缺失或为 0，已通过上游 GET 计算长度: {}",
                             computed_len
                         );
                     }
                 }
                 Err(e) => {
-                    error!("回退 GET 读取 manifest 内容失败: {}", e);
+                    error!("读取 manifest 内容用于长度计算失败: {}", e);
                 }
-            },
-            Err(e) => {
-                error!("回退 GET 请求 manifest 失败: {}", e);
             }
         }
-    }
 
-    // 复制所有响应头
-    for (name, value) in response.headers() {
-        if req.method() == actix_web::http::Method::HEAD
-            && name.as_str().eq_ignore_ascii_case("content-length")
-        {
-            continue;
+        for (name, value) in response_headers {
+            if name.eq_ignore_ascii_case("content-length") {
+                continue;
+            }
+            builder.append_header((name, value));
         }
 
-        if let Ok(value_str) = value.to_str() {
-            builder.append_header((name.as_str(), value_str));
-        }
-    }
-
-    if req.method() == actix_web::http::Method::HEAD {
         if let Some(content_length) = effective_content_length {
             builder.insert_header((header::CONTENT_LENGTH, content_length.to_string()));
+            builder.no_chunking(content_length);
         }
+
+        info!(
+            "{} {} {:?} {} {}",
+            req.method(),
+            req.uri(),
+            req.version(),
+            status.as_u16(),
+            status.canonical_reason().unwrap_or("Unknown")
+        );
+
+        let empty_stream = empty::<Result<web::Bytes, actix_web::Error>>();
+        return Ok(builder.streaming(empty_stream));
     }
 
-    // 记录响应日志
+    let mut builder =
+        HttpResponse::build(actix_web::http::StatusCode::from_u16(status.as_u16()).unwrap());
+    for (name, value) in response_headers {
+        builder.append_header((name, value));
+    }
+
     info!(
         "{} {} {:?} {} {}",
         req.method(),
@@ -148,31 +165,17 @@ pub async fn handle_request(
         status.canonical_reason().unwrap_or("Unknown")
     );
 
-    // 根据请求方法处理响应
-    if req.method() == actix_web::http::Method::HEAD {
-        // HEAD 请求不返回消息体，但需要保留准确的 Content-Length。
-        // 使用空流 + no_chunking，避免框架将 Content-Length 强制写成 0。
-        if let Some(content_length) = effective_content_length {
-            builder.no_chunking(content_length);
-        }
+    let stream = response.bytes_stream().map(|result| {
+        result.map_err(|err| {
+            let error_msg = err.to_string();
+            if error_msg.contains("timeout") || error_msg.contains("deadline") {
+                error!("流读取超时错误 (可能是镜像过大): {}", err);
+            } else {
+                error!("流读取错误: {}", err);
+            }
+            actix_web::error::ErrorInternalServerError(format!("数据传输错误: {}", err))
+        })
+    });
 
-        let empty_stream = empty::<Result<web::Bytes, actix_web::Error>>();
-        Ok(builder.streaming(empty_stream))
-    } else {
-        // GET 请求，使用流式传输响应体
-        let stream = response.bytes_stream().map(|result| {
-            result.map_err(|err| {
-                // 检查是否是超时错误
-                let error_msg = err.to_string();
-                if error_msg.contains("timeout") || error_msg.contains("deadline") {
-                    error!("流读取超时错误 (可能是镜像过大): {}", err);
-                } else {
-                    error!("流读取错误: {}", err);
-                }
-                actix_web::error::ErrorInternalServerError(format!("数据传输错误: {}", err))
-            })
-        });
-
-        Ok(builder.streaming(stream))
-    }
+    Ok(builder.streaming(stream))
 }
