@@ -10,15 +10,24 @@ fn append_forward_headers(
     mut request_builder: reqwest::RequestBuilder,
     req: &HttpRequest,
 ) -> reqwest::RequestBuilder {
-    if let Some(auth) = req.headers().get("Authorization") {
-        if let Ok(auth_str) = auth.to_str() {
-            request_builder = request_builder.header("Authorization", auth_str);
-        }
-    }
+    // Docker pull 在断点/重试场景会大量依赖 Range。
+    // 若不透传，httpReadSeeker 可能拿不到预期分片，导致后续拉层失败。
+    const FORWARDED_HEADERS: [&str; 8] = [
+        "Authorization",
+        "Accept",
+        "Range",
+        "If-Range",
+        "If-Match",
+        "If-None-Match",
+        "If-Modified-Since",
+        "If-Unmodified-Since",
+    ];
 
-    for accept in req.headers().get_all("Accept") {
-        if let Ok(accept_str) = accept.to_str() {
-            request_builder = request_builder.header("Accept", accept_str);
+    for header_name in FORWARDED_HEADERS {
+        for value in req.headers().get_all(header_name) {
+            if let Ok(value_str) = value.to_str() {
+                request_builder = request_builder.header(header_name, value_str);
+            }
         }
     }
 
