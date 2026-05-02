@@ -6,6 +6,59 @@ use crate::AppState;
 use crate::HTTP_CLIENT;
 use crate::error::AppError;
 
+fn is_hop_by_hop_header(name: &str) -> bool {
+    matches!(
+        name.to_ascii_lowercase().as_str(),
+        "connection"
+            | "keep-alive"
+            | "proxy-authenticate"
+            | "proxy-authorization"
+            | "te"
+            | "trailer"
+            | "transfer-encoding"
+            | "upgrade"
+    )
+}
+
+fn should_forward_response_header(name: &str) -> bool {
+    !is_hop_by_hop_header(name) && !name.eq_ignore_ascii_case("content-length")
+}
+
+fn header_value<'a>(headers: &'a [(String, String)], header_name: &str) -> Option<&'a str> {
+    headers
+        .iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case(header_name))
+        .map(|(_, value)| value.as_str())
+}
+
+fn parse_content_length(headers: &[(String, String)]) -> Option<u64> {
+    header_value(headers, "content-length")?
+        .trim()
+        .parse::<u64>()
+        .ok()
+}
+
+fn parse_content_range_total(value: &str) -> Option<u64> {
+    let value = value.trim();
+    let range = value
+        .strip_prefix("bytes ")
+        .or_else(|| value.strip_prefix("Bytes "))?;
+    let (_, total) = range.rsplit_once('/')?;
+    let total = total.trim();
+    if total == "*" {
+        None
+    } else {
+        total.parse::<u64>().ok()
+    }
+}
+
+fn effective_content_length(
+    response: &reqwest::Response,
+    headers: &[(String, String)],
+) -> Option<u64> {
+    parse_content_length(headers).or_else(|| response.content_length())
+}
+
 fn append_forward_headers(
     mut request_builder: reqwest::RequestBuilder,
     req: &HttpRequest,
@@ -34,6 +87,41 @@ fn append_forward_headers(
     request_builder
 }
 
+async fn probe_blob_content_length(target_url: &str, req: &HttpRequest) -> Option<u64> {
+    let request_builder =
+        append_forward_headers(HTTP_CLIENT.get(target_url), req).header("Range", "bytes=0-0");
+
+    let response = match request_builder.send().await {
+        Ok(resp) => resp,
+        Err(e) => {
+            error!("GET {} Range bytes=0-0 失败: {}", target_url, e);
+            return None;
+        }
+    };
+
+    let response_headers: Vec<(String, String)> = response
+        .headers()
+        .iter()
+        .filter_map(|(name, value)| {
+            value
+                .to_str()
+                .ok()
+                .map(|value_str| (name.as_str().to_string(), value_str.to_string()))
+        })
+        .collect();
+
+    let length_from_range = header_value(&response_headers, "content-range")
+        .and_then(parse_content_range_total)
+        .filter(|content_length| *content_length > 0);
+
+    if length_from_range.is_some() {
+        return length_from_range;
+    }
+
+    effective_content_length(&response, &response_headers)
+        .filter(|content_length| *content_length > 0)
+}
+
 pub async fn handle_request(
     req: HttpRequest,
     path: web::Path<(String, String, String)>,
@@ -49,6 +137,7 @@ pub async fn handle_request(
     };
 
     let is_manifest_request = path_type == "manifests";
+    let is_blob_request = path_type == "blobs";
     let client_is_head = req.method() == actix_web::http::Method::HEAD;
     // Docker 29 对 manifest descriptor 的 size 校验更严格。
     // 对客户端 HEAD manifest 请求，直接对上游发 GET，更稳定地拿到 manifest 元信息。
@@ -111,7 +200,19 @@ pub async fn handle_request(
     if client_is_head {
         let mut builder =
             HttpResponse::build(actix_web::http::StatusCode::from_u16(status.as_u16()).unwrap());
-        let effective_content_length = response.content_length();
+        let mut effective_content_length = effective_content_length(&response, &response_headers);
+
+        if is_blob_request && status.is_success() && effective_content_length.unwrap_or(0) == 0 {
+            effective_content_length = probe_blob_content_length(&target_url, &req).await;
+            if let Some(content_length) = effective_content_length {
+                info!(
+                    "blob HEAD 响应缺少有效 Content-Length，已通过 Range 探测补齐为 {}",
+                    content_length
+                );
+            } else {
+                info!("blob HEAD 响应缺少有效 Content-Length，Range 探测也未能获取总长度");
+            }
+        }
 
         // 不在代理层读取整个 manifest 来手动计算长度，避免额外复杂度和开销。
         // 我们仅使用上游返回的 Content-Length；若上游缺失该头，则不在此处强行补算。
@@ -121,10 +222,9 @@ pub async fn handle_request(
         }
 
         for (name, value) in response_headers {
-            if name.eq_ignore_ascii_case("content-length") {
-                continue;
+            if should_forward_response_header(&name) {
+                builder.append_header((name, value));
             }
-            builder.append_header((name, value));
         }
 
         if let Some(content_length) = effective_content_length {
@@ -147,8 +247,17 @@ pub async fn handle_request(
 
     let mut builder =
         HttpResponse::build(actix_web::http::StatusCode::from_u16(status.as_u16()).unwrap());
+    let effective_content_length = effective_content_length(&response, &response_headers);
+
     for (name, value) in response_headers {
-        builder.append_header((name, value));
+        if should_forward_response_header(&name) {
+            builder.append_header((name, value));
+        }
+    }
+
+    if let Some(content_length) = effective_content_length {
+        builder.insert_header((header::CONTENT_LENGTH, content_length.to_string()));
+        builder.no_chunking(content_length);
     }
 
     info!(
@@ -173,4 +282,21 @@ pub async fn handle_request(
     });
 
     Ok(builder.streaming(stream))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_content_range_total() {
+        assert_eq!(parse_content_range_total("bytes 0-0/123456"), Some(123456));
+        assert_eq!(
+            parse_content_range_total("bytes 1024-2047/4096"),
+            Some(4096)
+        );
+        assert_eq!(parse_content_range_total("bytes */4096"), Some(4096));
+        assert_eq!(parse_content_range_total("bytes 0-0/*"), None);
+        assert_eq!(parse_content_range_total("invalid"), None);
+    }
 }
