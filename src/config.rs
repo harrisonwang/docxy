@@ -13,7 +13,34 @@ pub struct ServerSettings {
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct RegistrySettings {
+    #[serde(default = "default_registry_name")]
+    pub default: String,
+    #[serde(default)]
+    pub upstream_registry: Option<String>,
+    #[serde(default)]
+    pub auth_realm: Option<String>,
+    #[serde(default)]
+    pub auth_service: Option<String>,
+    #[serde(default = "default_true")]
+    pub auto_library_prefix: bool,
+    #[serde(default)]
+    pub public_base_url: Option<String>,
+    #[serde(default)]
+    pub upstreams: Vec<RegistryUpstreamSettings>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct RegistryUpstreamSettings {
+    pub name: String,
+    #[serde(default)]
+    pub hosts: Vec<String>,
     pub upstream_registry: String,
+    pub auth_realm: String,
+    pub auth_service: String,
+    #[serde(default)]
+    pub auto_library_prefix: bool,
+    #[serde(default)]
+    pub public_base_url: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -36,4 +63,12 @@ impl Settings {
 
         builder.build()?.try_deserialize()
     }
+}
+
+fn default_registry_name() -> String {
+    "dockerhub".to_string()
+}
+
+fn default_true() -> bool {
+    true
 }

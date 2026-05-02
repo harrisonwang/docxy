@@ -16,9 +16,10 @@ pub async fn handle_invalid_request(req: HttpRequest) -> HttpResponse {
 pub async fn redirect_to_https(req: HttpRequest) -> HttpResponse {
     let app_state = req.app_data::<web::Data<AppState>>().unwrap();
     let uri = req.uri().to_string();
+    let registry = app_state.registry_for_request(&req);
 
     // 构建重定向URL (HTTP -> HTTPS)
-    let redirect_url = format!("{}{}", app_state.public_base_url, uri);
+    let redirect_url = format!("{}{}", registry.public_base_url, uri);
 
     info!(
         "接收请求: \"{} {} HTTP/{:?}\" 301 Moved Permanently",

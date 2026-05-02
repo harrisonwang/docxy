@@ -126,6 +126,53 @@ bash <(curl -Ls https://raw.githubusercontent.com/harrisonwang/docxy/main/instal
     ```
     现在，`docker pull` 将通过您的代理进行拉取。
 
+### 多仓库代理
+
+Docxy 支持在同一个服务进程中配置多个上游仓库。Docker Hub 仍可通过 `registry-mirrors` 使用；GHCR、Quay.io 等非 Docker Hub 仓库需要使用对应的代理域名拉取。
+
+示例配置：
+
+```toml
+[registry]
+default = "dockerhub"
+
+[[registry.upstreams]]
+name = "dockerhub"
+hosts = ["docker.example.com"]
+upstream_registry = "https://registry-1.docker.io"
+auth_realm = "https://auth.docker.io/token"
+auth_service = "registry.docker.io"
+auto_library_prefix = true
+public_base_url = "https://docker.example.com"
+
+[[registry.upstreams]]
+name = "ghcr"
+hosts = ["ghcr.example.com"]
+upstream_registry = "https://ghcr.io"
+auth_realm = "https://ghcr.io/token"
+auth_service = "ghcr.io"
+auto_library_prefix = false
+public_base_url = "https://ghcr.example.com"
+
+[[registry.upstreams]]
+name = "quay"
+hosts = ["quay.example.com"]
+upstream_registry = "https://quay.io"
+auth_realm = "https://quay.io/v2/auth"
+auth_service = "quay.io"
+auto_library_prefix = false
+public_base_url = "https://quay.example.com"
+```
+
+使用示例：
+
+```bash
+docker pull ghcr.example.com/owner/image:tag
+docker pull quay.example.com/organization/image:tag
+docker login ghcr.example.com
+docker login quay.example.com
+```
+
 <details>
 <summary>方式二：登录使用 (提升拉取速率)</summary>
 
@@ -207,7 +254,11 @@ bash <(curl -Ls https://raw.githubusercontent.com/harrisonwang/docxy/main/instal
     public_base_url = "https://your-dev-domain.example" # 必须填写 Tunnel 暴露给外网的地址
 
     [registry]
+    default = "dockerhub"
     upstream_registry = "https://registry-1.docker.io"
+    auth_realm = "https://auth.docker.io/token"
+    auth_service = "registry.docker.io"
+    auto_library_prefix = true
 
     [tls]
     cert_path = "/tmp/docxy-dev.crt"

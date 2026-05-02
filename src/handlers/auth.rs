@@ -1,23 +1,18 @@
 use actix_web::{HttpRequest, HttpResponse, Result, web};
 use log::{error, info};
-use std::collections::HashMap;
 
-use crate::AppState;
-use crate::HTTP_CLIENT;
 use crate::error::AppError;
+use crate::{AppState, HTTP_CLIENT, RegistryTarget};
 
-// 处理 scope 参数中的官方镜像前缀
-fn process_scope_parameter(scope: &str) -> String {
-    // scope 格式通常是: repository:image_name:action
-    // 例如: repository:hello-world:pull
-    // 需要转换为: repository:library/hello-world:pull
+fn process_scope_parameter(scope: &str, auto_library_prefix: bool) -> String {
+    if !auto_library_prefix {
+        return scope.to_string();
+    }
 
     let parts: Vec<&str> = scope.split(':').collect();
     if parts.len() == 3 && parts[0] == "repository" {
         let image_name = parts[1];
         let action = parts[2];
-
-        // 检查是否为官方镜像（没有命名空间）
         let processed_image_name = if !image_name.contains('/') {
             format!("library/{}", image_name)
         } else {
@@ -26,57 +21,134 @@ fn process_scope_parameter(scope: &str) -> String {
 
         format!("repository:{}:{}", processed_image_name, action)
     } else {
-        // 非标准格式，保持原样
         scope.to_string()
     }
 }
 
-// 获取 Token 的处理函数
-pub async fn get_token(req: HttpRequest) -> Result<HttpResponse, AppError> {
-    // 1. 尝试解析查询参数，失败则返回 400
-    let query_params = match web::Query::<HashMap<String, String>>::from_query(req.query_string()) {
-        Ok(q) => q,
-        Err(_) => {
-            return Err(AppError::InvalidRequest("无效的查询参数".to_string()));
-        }
-    };
+fn query_pairs(query_string: &str) -> Result<Vec<(String, String)>, AppError> {
+    let url = reqwest::Url::parse(&format!("http://localhost/?{query_string}"))
+        .map_err(|_| AppError::InvalidRequest("invalid query parameters".to_string()))?;
 
-    // 2. 构建 Docker Hub 认证服务 URL
-    let mut auth_url = reqwest::Url::parse("https://auth.docker.io/token").unwrap();
-    {
-        let mut query_pairs = auth_url.query_pairs_mut();
-        // service 必须是 registry.docker.io
-        query_pairs.append_pair("service", "registry.docker.io");
+    Ok(url
+        .query_pairs()
+        .map(|(key, value)| (key.into_owned(), value.into_owned()))
+        .collect())
+}
 
-        // 3. 透传所有客户端提供的查询参数（包含 account、client_id、offline_token、scope 等）
-        //    避免重复 service，并处理 scope 参数中的官方镜像前缀
-        for (k, v) in query_params.iter() {
-            if k != "service" {
-                if k == "scope" {
-                    // 处理 scope 参数中的官方镜像前缀
-                    let processed_scope = process_scope_parameter(v);
-                    query_pairs.append_pair(k, &processed_scope);
+fn bearer_param(auth_header: &str, param_name: &str) -> Option<String> {
+    let mut input = auth_header.trim().strip_prefix("Bearer ")?.trim();
+
+    while !input.is_empty() {
+        input = input.trim_start_matches(|ch: char| ch == ',' || ch.is_ascii_whitespace());
+        let (key, rest) = input.split_once('=')?;
+        let key = key.trim();
+        let rest = rest.trim_start();
+
+        let (value, remaining) = if let Some(rest) = rest.strip_prefix('"') {
+            let mut value = String::new();
+            let mut escaped = false;
+            let mut end_index = None;
+
+            for (index, ch) in rest.char_indices() {
+                if escaped {
+                    value.push(ch);
+                    escaped = false;
+                } else if ch == '\\' {
+                    escaped = true;
+                } else if ch == '"' {
+                    end_index = Some(index + ch.len_utf8());
+                    break;
                 } else {
-                    query_pairs.append_pair(k, v);
+                    value.push(ch);
                 }
+            }
+
+            let end_index = end_index?;
+            (value, &rest[end_index..])
+        } else {
+            let (value, remaining) = rest.split_once(',').unwrap_or((rest, ""));
+            (value.trim().to_string(), remaining)
+        };
+
+        if key.eq_ignore_ascii_case(param_name) {
+            return Some(value);
+        }
+
+        input = remaining;
+    }
+
+    None
+}
+
+fn escape_auth_param(value: &str) -> String {
+    value.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
+pub(crate) fn build_auth_challenge(
+    registry: &RegistryTarget,
+    upstream_challenge: Option<&str>,
+) -> String {
+    let mut challenge = format!(
+        "Bearer realm=\"{}/auth/{}/token\",service=\"{}\"",
+        registry.public_base_url,
+        registry.name,
+        escape_auth_param(&registry.auth_service)
+    );
+
+    if let Some(scope) = upstream_challenge.and_then(|header| bearer_param(header, "scope")) {
+        challenge.push_str(&format!(",scope=\"{}\"", escape_auth_param(&scope)));
+    }
+
+    challenge
+}
+
+fn resolve_registry(req: &HttpRequest, app_state: &AppState) -> Result<RegistryTarget, AppError> {
+    match req.match_info().get("registry") {
+        Some(registry_name) => app_state.registry_by_name(registry_name).ok_or_else(|| {
+            AppError::InvalidRequest(format!("unknown registry target: {registry_name}"))
+        }),
+        None => Ok(app_state.registry_for_request(req)),
+    }
+}
+
+pub async fn get_token(req: HttpRequest) -> Result<HttpResponse, AppError> {
+    let app_state = req.app_data::<web::Data<AppState>>().unwrap();
+    let registry = resolve_registry(&req, app_state)?;
+
+    let mut auth_url = reqwest::Url::parse(&registry.auth_realm).map_err(|e| {
+        AppError::InvalidRequest(format!("invalid auth realm for {}: {e}", registry.name))
+    })?;
+    {
+        let mut upstream_query = auth_url.query_pairs_mut();
+        upstream_query.append_pair("service", &registry.auth_service);
+
+        for (key, value) in query_pairs(req.query_string())? {
+            if key.eq_ignore_ascii_case("service") {
+                continue;
+            }
+
+            if key.eq_ignore_ascii_case("scope") {
+                let processed_scope = process_scope_parameter(&value, registry.auto_library_prefix);
+                upstream_query.append_pair(&key, &processed_scope);
+            } else {
+                upstream_query.append_pair(&key, &value);
             }
         }
     }
 
-    info!("转发 token 请求至: {}", auth_url);
+    info!(
+        "forwarding token request for registry {} to {}",
+        registry.name, auth_url
+    );
 
-    // 构造向上游的请求构建器
     let mut request_builder = HTTP_CLIENT.get(auth_url.clone());
 
-    // 检查并代理 Authorization 头
     if let Some(auth_header) = req.headers().get("Authorization") {
         if let Ok(auth_str) = auth_header.to_str() {
-            info!("代理 Authorization 头: {}", auth_str);
             request_builder = request_builder.header("Authorization", auth_str);
         }
     }
 
-    // 发送请求到 Docker Hub 认证服务
     let response = match request_builder.send().await {
         Ok(resp) => {
             info!(
@@ -89,24 +161,22 @@ pub async fn get_token(req: HttpRequest) -> Result<HttpResponse, AppError> {
             resp
         }
         Err(e) => {
-            error!("GET {} {:?} 失败: {}", auth_url, req.version(), e);
-            return Ok(HttpResponse::InternalServerError().body("无法连接到 Docker Hub 认证服务"));
+            error!("GET {} {:?} failed: {}", auth_url, req.version(), e);
+            return Ok(HttpResponse::InternalServerError()
+                .body(format!("unable to connect to registry auth service: {e}")));
         }
     };
 
-    // 获取状态码和响应头
     let status = response.status();
     let mut builder =
         HttpResponse::build(actix_web::http::StatusCode::from_u16(status.as_u16()).unwrap());
 
-    // 复制所有响应头
     for (name, value) in response.headers() {
         if let Ok(value_str) = value.to_str() {
             builder.append_header((name.as_str(), value_str));
         }
     }
 
-    // 获取响应体并返回
     match response.bytes().await {
         Ok(bytes) => {
             info!(
@@ -120,25 +190,22 @@ pub async fn get_token(req: HttpRequest) -> Result<HttpResponse, AppError> {
             Ok(builder.body(bytes))
         }
         Err(e) => {
-            error!("读取认证服务响应失败: {}", e);
-            Ok(HttpResponse::InternalServerError().body("无法读取认证服务响应"))
+            error!("failed reading auth service response: {}", e);
+            Ok(HttpResponse::InternalServerError()
+                .body("unable to read registry auth service response"))
         }
     }
 }
 
 pub async fn proxy_challenge(req: HttpRequest) -> Result<HttpResponse, AppError> {
     let app_state = req.app_data::<web::Data<AppState>>().unwrap();
-    let upstream_registry = app_state.upstream_registry.as_str();
+    let registry = app_state.registry_for_request(&req);
+    let request_url = format!("{}/v2/", registry.upstream_registry);
 
-    let request_url = format!("{upstream_registry}/v2/");
-
-    // 构建请求，检查是否有 Authorization 头
     let mut request_builder = HTTP_CLIENT.get(&request_url);
 
-    // 如果客户端提供了 Authorization 头，转发给上游
     if let Some(auth) = req.headers().get("Authorization") {
         if let Ok(auth_str) = auth.to_str() {
-            info!("代理 Authorization 头到 /v2/: {}", auth_str);
             request_builder = request_builder.header("Authorization", auth_str);
         }
     }
@@ -155,30 +222,24 @@ pub async fn proxy_challenge(req: HttpRequest) -> Result<HttpResponse, AppError>
             resp
         }
         Err(e) => {
-            error!("GET {} {:?} 失败: {}", request_url, req.version(), e);
-            return Ok(HttpResponse::InternalServerError().body("无法连接到上游 Docker Registry"));
+            error!("GET {} {:?} failed: {}", request_url, req.version(), e);
+            return Ok(HttpResponse::InternalServerError()
+                .body(format!("unable to connect to upstream registry: {e}")));
         }
     };
 
     let status = response.status().as_u16();
     let mut builder = HttpResponse::build(actix_web::http::StatusCode::from_u16(status).unwrap());
 
-    // 只有在返回 401 时才设置 WWW-Authenticate 头
     if status == 401 {
-        let auth_header = format!(
-            "Bearer realm=\"{}/auth/token\",service=\"registry.docker.io\"",
-            app_state.public_base_url
-        );
-        info!("设置认证头: {}", auth_header);
-
-        builder.append_header(("WWW-Authenticate", auth_header));
+        builder.append_header(("WWW-Authenticate", build_auth_challenge(&registry, None)));
     }
 
     let body = match response.text().await {
         Ok(text) => text,
         Err(e) => {
-            error!("读取上游响应内容失败: {}", e);
-            String::from("无法读取上游响应内容")
+            error!("failed reading upstream registry response: {}", e);
+            String::from("unable to read upstream registry response")
         }
     };
 
@@ -195,4 +256,70 @@ pub async fn proxy_challenge(req: HttpRequest) -> Result<HttpResponse, AppError>
     );
 
     Ok(builder.body(body))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_registry(auto_library_prefix: bool) -> RegistryTarget {
+        RegistryTarget {
+            name: "dockerhub".to_string(),
+            hosts: vec![],
+            upstream_registry: "https://registry-1.docker.io".to_string(),
+            auth_realm: "https://auth.docker.io/token".to_string(),
+            auth_service: "registry.docker.io".to_string(),
+            auto_library_prefix,
+            public_base_url: "https://proxy.example.com".to_string(),
+        }
+    }
+
+    #[test]
+    fn docker_hub_scope_adds_library_prefix() {
+        assert_eq!(
+            process_scope_parameter("repository:alpine:pull", true),
+            "repository:library/alpine:pull"
+        );
+        assert_eq!(
+            process_scope_parameter("repository:library/alpine:pull", true),
+            "repository:library/alpine:pull"
+        );
+    }
+
+    #[test]
+    fn non_docker_hub_scope_is_unchanged() {
+        assert_eq!(
+            process_scope_parameter("repository:owner/image:pull", false),
+            "repository:owner/image:pull"
+        );
+    }
+
+    #[test]
+    fn builds_registry_specific_auth_challenge() {
+        let mut registry = test_registry(false);
+        registry.name = "ghcr".to_string();
+        registry.auth_service = "ghcr.io".to_string();
+        registry.public_base_url = "https://ghcr.example.com".to_string();
+
+        assert_eq!(
+            build_auth_challenge(
+                &registry,
+                Some(
+                    "Bearer realm=\"https://ghcr.io/token\",service=\"ghcr.io\",scope=\"repository:owner/image:pull\""
+                )
+            ),
+            "Bearer realm=\"https://ghcr.example.com/auth/ghcr/token\",service=\"ghcr.io\",scope=\"repository:owner/image:pull\""
+        );
+    }
+
+    #[test]
+    fn parses_quoted_bearer_param() {
+        assert_eq!(
+            bearer_param(
+                "Bearer realm=\"https://quay.io/v2/auth\",service=\"quay.io\",scope=\"repository:org/image:pull\"",
+                "scope"
+            ),
+            Some("repository:org/image:pull".to_string())
+        );
+    }
 }

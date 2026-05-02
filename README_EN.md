@@ -126,6 +126,53 @@ This is the basic configuration, pointing Docker's default requests to your prox
     ```
     Now, `docker pull` will pull images through your proxy.
 
+### Multi-Registry Proxy
+
+Docxy can proxy multiple upstream registries in the same service process. Docker Hub can still use `registry-mirrors`; GHCR, Quay.io, and other non-Docker Hub registries should be pulled through their configured proxy hostnames.
+
+Example configuration:
+
+```toml
+[registry]
+default = "dockerhub"
+
+[[registry.upstreams]]
+name = "dockerhub"
+hosts = ["docker.example.com"]
+upstream_registry = "https://registry-1.docker.io"
+auth_realm = "https://auth.docker.io/token"
+auth_service = "registry.docker.io"
+auto_library_prefix = true
+public_base_url = "https://docker.example.com"
+
+[[registry.upstreams]]
+name = "ghcr"
+hosts = ["ghcr.example.com"]
+upstream_registry = "https://ghcr.io"
+auth_realm = "https://ghcr.io/token"
+auth_service = "ghcr.io"
+auto_library_prefix = false
+public_base_url = "https://ghcr.example.com"
+
+[[registry.upstreams]]
+name = "quay"
+hosts = ["quay.example.com"]
+upstream_registry = "https://quay.io"
+auth_realm = "https://quay.io/v2/auth"
+auth_service = "quay.io"
+auto_library_prefix = false
+public_base_url = "https://quay.example.com"
+```
+
+Usage examples:
+
+```bash
+docker pull ghcr.example.com/owner/image:tag
+docker pull quay.example.com/organization/image:tag
+docker login ghcr.example.com
+docker login quay.example.com
+```
+
 <details>
 <summary>Method Two: Login Usage (Increased Pull Rate)</summary>
 
@@ -207,7 +254,11 @@ This method allows you to get a higher image pull rate by logging in with your D
     public_base_url = "https://your-dev-domain.example" # Must match the tunnel's public URL
 
     [registry]
+    default = "dockerhub"
     upstream_registry = "https://registry-1.docker.io"
+    auth_realm = "https://auth.docker.io/token"
+    auth_service = "registry.docker.io"
+    auto_library_prefix = true
 
     [tls]
     cert_path = "/tmp/docxy-dev.crt"

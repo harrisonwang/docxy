@@ -2,9 +2,10 @@ use actix_web::{HttpRequest, HttpResponse, Result, http::header, web};
 use futures::stream::{StreamExt, empty};
 use log::{error, info};
 
-use crate::AppState;
+use super::auth::build_auth_challenge;
 use crate::HTTP_CLIENT;
 use crate::error::AppError;
+use crate::{AppState, RegistryTarget};
 
 fn is_hop_by_hop_header(name: &str) -> bool {
     matches!(
@@ -57,6 +58,25 @@ fn effective_content_length(
     headers: &[(String, String)],
 ) -> Option<u64> {
     parse_content_length(headers).or_else(|| response.content_length())
+}
+
+fn append_response_headers(
+    builder: &mut actix_web::HttpResponseBuilder,
+    response_headers: Vec<(String, String)>,
+    registry: &RegistryTarget,
+) {
+    for (name, value) in response_headers {
+        if should_forward_response_header(&name) {
+            if name.eq_ignore_ascii_case("www-authenticate") {
+                builder.append_header((
+                    "WWW-Authenticate",
+                    build_auth_challenge(registry, Some(&value)),
+                ));
+            } else {
+                builder.append_header((name, value));
+            }
+        }
+    }
 }
 
 fn append_forward_headers(
@@ -127,10 +147,11 @@ pub async fn handle_request(
     path: web::Path<(String, String, String)>,
 ) -> Result<HttpResponse, AppError> {
     let app_state = req.app_data::<web::Data<AppState>>().unwrap();
-    let upstream_registry = app_state.upstream_registry.as_str();
+    let registry = app_state.registry_for_request(&req);
+    let upstream_registry = registry.upstream_registry.as_str();
     let (image_name, path_type, reference) = path.into_inner();
 
-    let processed_image_name = if !image_name.contains('/') {
+    let processed_image_name = if registry.auto_library_prefix && !image_name.contains('/') {
         format!("library/{}", image_name)
     } else {
         image_name
@@ -143,7 +164,11 @@ pub async fn handle_request(
     // 对客户端 HEAD manifest 请求，直接对上游发 GET，更稳定地拿到 manifest 元信息。
     let use_get_for_upstream = client_is_head && is_manifest_request;
 
-    let path = format!("/v2/{processed_image_name}/{path_type}/{reference}");
+    let mut path = format!("/v2/{processed_image_name}/{path_type}/{reference}");
+    if let Some(query) = req.uri().query() {
+        path.push('?');
+        path.push_str(query);
+    }
     let target_url = format!("{upstream_registry}{path}");
 
     let request_builder = if use_get_for_upstream {
@@ -221,11 +246,7 @@ pub async fn handle_request(
             info!("manifest 响应缺少有效 Content-Length，保持上游语义透传，不进行代理侧补算");
         }
 
-        for (name, value) in response_headers {
-            if should_forward_response_header(&name) {
-                builder.append_header((name, value));
-            }
-        }
+        append_response_headers(&mut builder, response_headers, &registry);
 
         if let Some(content_length) = effective_content_length {
             builder.insert_header((header::CONTENT_LENGTH, content_length.to_string()));
@@ -249,11 +270,7 @@ pub async fn handle_request(
         HttpResponse::build(actix_web::http::StatusCode::from_u16(status.as_u16()).unwrap());
     let effective_content_length = effective_content_length(&response, &response_headers);
 
-    for (name, value) in response_headers {
-        if should_forward_response_header(&name) {
-            builder.append_header((name, value));
-        }
-    }
+    append_response_headers(&mut builder, response_headers, &registry);
 
     if let Some(content_length) = effective_content_length {
         builder.insert_header((header::CONTENT_LENGTH, content_length.to_string()));
