@@ -26,7 +26,15 @@ jobs:
 
       - name: 获取版本号
         id: get_version
-        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+        run: |
+          if [[ "${GITHUB_REF}" =~ ^refs/tags/v ]]; then
+            VERSION="${GITHUB_REF#refs/tags/v}"
+          else
+            BRANCH="${GITHUB_REF#refs/heads/}"
+            SAFE_BRANCH=$(echo "${BRANCH}" | tr '/' '-' | tr -cd '[:alnum:]-._')
+            VERSION="${SAFE_BRANCH}-${GITHUB_SHA:0:7}"
+          fi
+          echo "VERSION=${VERSION}" >> "$GITHUB_OUTPUT"
 
       - name: 准备二进制文件
         run: |
@@ -35,6 +43,7 @@ jobs:
 
       - name: 创建 Release
         id: create_release
+        if: ${{ startsWith(github.ref, 'refs/tags/v') }}
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref }}
@@ -49,6 +58,13 @@ jobs:
             - Linux ARM (aarch64)
           files: |
             ./docxy-v${{ steps.get_version.outputs.VERSION }}-linux-amd64
+
+      - name: 上传构建产物（分支 / 手动）
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: docxy-linux-amd64-${{ steps.get_version.outputs.VERSION }}
+          path: ./docxy-v${{ steps.get_version.outputs.VERSION }}-linux-amd64
 
   build-and-release-arm64:
     name: 构建与发布 ARM64
@@ -67,7 +83,15 @@ jobs:
 
       - name: 获取版本号
         id: get_version
-        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+        run: |
+          if [[ "${GITHUB_REF}" =~ ^refs/tags/v ]]; then
+            VERSION="${GITHUB_REF#refs/tags/v}"
+          else
+            BRANCH="${GITHUB_REF#refs/heads/}"
+            SAFE_BRANCH=$(echo "${BRANCH}" | tr '/' '-' | tr -cd '[:alnum:]-._')
+            VERSION="${SAFE_BRANCH}-${GITHUB_SHA:0:7}"
+          fi
+          echo "VERSION=${VERSION}" >> "$GITHUB_OUTPUT"
 
       - name: 准备二进制文件
         run: |
@@ -75,7 +99,15 @@ jobs:
           chmod +x docxy-v${{ steps.get_version.outputs.VERSION }}-linux-arm64
 
       - name: 上传到已存在的 Release
+        if: ${{ startsWith(github.ref, 'refs/tags/v') }}
         uses: softprops/action-gh-release@v2
         with:
           files: |
             ./docxy-v${{ steps.get_version.outputs.VERSION }}-linux-arm64
+
+      - name: 上传构建产物（分支 / 手动）
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: docxy-linux-arm64-${{ steps.get_version.outputs.VERSION }}
+          path: ./docxy-v${{ steps.get_version.outputs.VERSION }}-linux-arm64
