@@ -1,4 +1,7 @@
 use serde::Deserialize;
+use std::path::Path;
+
+pub const DEFAULT_CONFIG_FILE: &str = "config/default";
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct ServerSettings {
@@ -58,9 +61,11 @@ pub struct Settings {
 
 impl Settings {
     pub fn new() -> Result<Self, config::ConfigError> {
-        let builder =
-            config::Config::builder().add_source(config::File::with_name("config/default"));
+        Self::from_file(DEFAULT_CONFIG_FILE)
+    }
 
+    pub fn from_file(path: impl AsRef<Path>) -> Result<Self, config::ConfigError> {
+        let builder = config::Config::builder().add_source(config::File::from(path.as_ref()));
         builder.build()?.try_deserialize()
     }
 }

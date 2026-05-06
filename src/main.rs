@@ -3,8 +3,10 @@ use actix_web::{App, HttpRequest, HttpServer, Result, guard, http::header, web};
 use lazy_static::lazy_static;
 use log::{error, info, warn};
 use rustls::{Certificate, PrivateKey, ServerConfig};
+use std::env;
 use std::fs::File;
 use std::io::BufReader;
+use std::process;
 use std::time::Duration;
 
 mod config;
@@ -71,6 +73,19 @@ const POOL_IDLE_TIMEOUT_SECS: u64 = 90; // 连接池空闲超时：90秒
 const DOCKER_HUB_REGISTRY: &str = "https://registry-1.docker.io";
 const DOCKER_HUB_AUTH_REALM: &str = "https://auth.docker.io/token";
 const DOCKER_HUB_AUTH_SERVICE: &str = "registry.docker.io";
+
+#[derive(Debug, PartialEq, Eq)]
+enum CliAction {
+    Run(CliOptions),
+    PrintHelp,
+    PrintVersion,
+}
+
+#[derive(Debug, Default, PartialEq, Eq)]
+struct CliOptions {
+    config_path: Option<String>,
+    log_filter: Option<String>,
+}
 
 lazy_static! {
     pub static ref HTTP_CLIENT: reqwest::Client = reqwest::Client::builder()
@@ -299,10 +314,102 @@ fn normalize_optional_public_base_url(
     }
 }
 
-#[actix_web::main]
-async fn main() -> Result<(), AppError> {
-    // 使用env_logger的Builder直接设置日志级别
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("actix_web=info"))
+fn parse_cli_args<I, S>(args: I) -> Result<CliAction, String>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    let args = args
+        .into_iter()
+        .map(|arg| arg.as_ref().to_string())
+        .collect::<Vec<_>>();
+
+    if args.iter().any(|arg| arg == "-h" || arg == "--help") {
+        return Ok(CliAction::PrintHelp);
+    }
+
+    let mut options = CliOptions::default();
+    let mut iter = args.into_iter();
+
+    while let Some(arg) = iter.next() {
+        match arg.as_str() {
+            "-V" | "--version" => return Ok(CliAction::PrintVersion),
+            "-c" | "--config" => {
+                let value = iter
+                    .next()
+                    .ok_or_else(|| format!("选项 '{arg}' 需要一个配置文件路径"))?;
+                if value.starts_with('-') {
+                    return Err(format!("选项 '{arg}' 需要一个配置文件路径"));
+                }
+                options.config_path = Some(parse_non_empty_option_value(&arg, value)?);
+            }
+            "--log-level" => {
+                let value = iter
+                    .next()
+                    .ok_or_else(|| format!("选项 '{arg}' 需要一个日志级别或过滤器"))?;
+                if value.starts_with('-') {
+                    return Err(format!("选项 '{arg}' 需要一个日志级别或过滤器"));
+                }
+                options.log_filter = Some(parse_non_empty_option_value(&arg, value)?);
+            }
+            _ if arg.starts_with("--config=") => {
+                options.config_path = Some(parse_non_empty_option_value(
+                    "--config",
+                    arg.trim_start_matches("--config=").to_string(),
+                )?);
+            }
+            _ if arg.starts_with("-c=") => {
+                options.config_path = Some(parse_non_empty_option_value(
+                    "-c",
+                    arg.trim_start_matches("-c=").to_string(),
+                )?);
+            }
+            _ if arg.starts_with("--log-level=") => {
+                options.log_filter = Some(parse_non_empty_option_value(
+                    "--log-level",
+                    arg.trim_start_matches("--log-level=").to_string(),
+                )?);
+            }
+            _ => return Err(format!("未知选项 '{arg}'")),
+        }
+    }
+
+    Ok(CliAction::Run(options))
+}
+
+fn parse_non_empty_option_value(option_name: &str, value: String) -> Result<String, String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Err(format!("选项 '{option_name}' 的值不能为空"));
+    }
+
+    Ok(trimmed.to_string())
+}
+
+fn resolve_config_path(cli_config_path: Option<String>) -> String {
+    cli_config_path
+        .or_else(|| {
+            env::var("WHARF_CONFIG")
+                .ok()
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty())
+        })
+        .unwrap_or_else(|| config::DEFAULT_CONFIG_FILE.to_string())
+}
+
+fn init_logger(log_filter: Option<&str>) {
+    let mut builder = match log_filter {
+        Some(filter) => {
+            let mut builder = env_logger::Builder::new();
+            builder.parse_filters(filter);
+            builder
+        }
+        None => env_logger::Builder::from_env(
+            env_logger::Env::default().default_filter_or("actix_web=info"),
+        ),
+    };
+
+    builder
         .format(|buf, record| {
             use chrono::Local;
             use std::io::Write;
@@ -331,14 +438,81 @@ async fn main() -> Result<(), AppError> {
             )
         })
         .init();
+}
 
-    let settings =
-        config::Settings::new().map_err(|e| AppError::TlsConfig(format!("无法加载配置: {}", e)))?;
+fn help_text() -> String {
+    format!(
+        "\
+{name} {version}
+
+Docker Registry 代理，用于容器镜像加速。
+
+用法:
+  {name} [选项]
+
+选项:
+  -c, --config <路径>       指定配置文件路径，可省略 .toml 后缀
+      --log-level <过滤器>  指定日志级别或 RUST_LOG 过滤器，例如 info、debug、wharf=debug
+  -h, --help               打印帮助信息
+  -V, --version            打印版本信息
+
+优先级:
+  配置文件: --config/-c > WHARF_CONFIG > config/default
+  日志级别: --log-level > RUST_LOG > actix_web=info
+
+兼容说明:
+  不传参数时会继续读取当前工作目录下的 config/default。
+  现有 systemd 配置 WorkingDirectory=/etc/wharf 会继续读取 /etc/wharf/config/default.toml。
+",
+        name = env!("CARGO_PKG_NAME"),
+        version = env!("CARGO_PKG_VERSION")
+    )
+}
+
+#[actix_web::main]
+async fn main() {
+    let cli_options = match parse_cli_args(env::args().skip(1)) {
+        Ok(CliAction::Run(options)) => options,
+        Ok(CliAction::PrintHelp) => {
+            print!("{}", help_text());
+            return;
+        }
+        Ok(CliAction::PrintVersion) => {
+            println!("{} {}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
+            return;
+        }
+        Err(message) => {
+            eprintln!("{message}\n\n{}", help_text());
+            process::exit(2);
+        }
+    };
+
+    // 使用env_logger的Builder直接设置日志级别
+    init_logger(cli_options.log_filter.as_deref());
+
+    if let Err(error) = run_server(cli_options).await {
+        eprintln!("{}", startup_error_message(&error));
+        process::exit(1);
+    }
+}
+
+async fn run_server(cli_options: CliOptions) -> Result<(), AppError> {
+    let config_path = resolve_config_path(cli_options.config_path);
+    let settings = if config_path == config::DEFAULT_CONFIG_FILE {
+        config::Settings::new()
+    } else {
+        config::Settings::from_file(&config_path)
+    }
+    .map_err(|source| AppError::ConfigLoad {
+        path: config_path.clone(),
+        source,
+    })?;
     let public_base_url = resolve_public_base_url(&settings.server)?;
     let registries = build_registry_targets(&settings.registry, &public_base_url)?;
 
     // 输出配置信息
     info!("服务器配置:");
+    info!("配置文件: {}", config_path);
     info!("HTTP 端口: {}", settings.server.http_port);
     info!("对外基准地址: {}", public_base_url);
 
@@ -464,6 +638,49 @@ async fn main() -> Result<(), AppError> {
     futures::future::join_all(servers).await;
 
     Ok(())
+}
+
+fn startup_error_message(error: &AppError) -> String {
+    match error {
+        AppError::ConfigLoad { path, source } => config_load_error_message(path, source),
+        AppError::TlsConfig(message) => {
+            format!("启动失败: 配置无效\n\n原因: {message}\n\n可运行 `wharf -h` 查看启动选项。")
+        }
+        AppError::Io(error) => format!(
+            "启动失败: I/O 错误\n\n原因: {error}\n\n请检查端口占用、文件权限或 systemd 服务权限。"
+        ),
+        AppError::Rustls(error) => {
+            format!("启动失败: TLS 配置无效\n\n原因: {error}\n\n请检查证书和私钥是否匹配。")
+        }
+        AppError::UpstreamRequest(error) => {
+            format!("启动失败: 上游 Registry 请求失败\n\n原因: {error}")
+        }
+        AppError::InvalidRequest(message) => format!("启动失败: 请求配置无效\n\n原因: {message}"),
+    }
+}
+
+fn config_load_error_message(path: &str, source: &::config::ConfigError) -> String {
+    let source_message = source.to_string();
+    let mut message = format!("配置文件加载失败\n\n路径: {path}\n原因: {source_message}\n");
+
+    if path == config::DEFAULT_CONFIG_FILE {
+        message.push_str("\n默认路径: config/default（会自动查找 config/default.toml）\n");
+    }
+
+    if is_missing_config_error(&source_message) {
+        message.push_str(
+            "\n处理方式:\n  1. 创建默认配置文件:\n     cp config/default.toml.example config/default.toml\n  2. 或显式指定配置文件:\n     wharf --config /etc/wharf/config/default.toml\n\nsystemd 兼容说明:\n  当前默认仍兼容 WorkingDirectory=/etc/wharf，此时会读取 /etc/wharf/config/default.toml。\n",
+        );
+    } else {
+        message
+            .push_str("\n请检查配置文件 TOML 格式、字段名称和必填字段。可运行 `wharf -h` 查看配置路径优先级。\n");
+    }
+
+    message
+}
+
+fn is_missing_config_error(message: &str) -> bool {
+    message.contains("not found") || message.contains("No such file or directory")
 }
 fn resolve_public_base_url(server: &config::ServerSettings) -> Result<String, AppError> {
     if let Some(configured) = server.public_base_url.as_deref() {
@@ -725,5 +942,129 @@ mod tests {
             resolve_public_base_url(&server_settings()).unwrap(),
             "https://docker.example.com"
         );
+    }
+
+    #[test]
+    fn cli_without_args_runs_server() {
+        assert_eq!(
+            parse_cli_args(std::iter::empty::<&str>()).unwrap(),
+            CliAction::Run(CliOptions::default())
+        );
+    }
+
+    #[test]
+    fn cli_help_flags_short_circuit_startup() {
+        assert!(matches!(
+            parse_cli_args(["-h"]).unwrap(),
+            CliAction::PrintHelp
+        ));
+        assert!(matches!(
+            parse_cli_args(["--help", "-V"]).unwrap(),
+            CliAction::PrintHelp
+        ));
+    }
+
+    #[test]
+    fn cli_version_flags_short_circuit_startup() {
+        assert!(matches!(
+            parse_cli_args(["-V"]).unwrap(),
+            CliAction::PrintVersion
+        ));
+        assert!(matches!(
+            parse_cli_args(["--version"]).unwrap(),
+            CliAction::PrintVersion
+        ));
+    }
+
+    #[test]
+    fn cli_rejects_unknown_args() {
+        assert_eq!(
+            parse_cli_args(["--missing"]).unwrap_err(),
+            "未知选项 '--missing'"
+        );
+    }
+
+    #[test]
+    fn cli_parses_config_path() {
+        assert_eq!(
+            parse_cli_args(["--config", "/etc/wharf/config/default.toml"]).unwrap(),
+            CliAction::Run(CliOptions {
+                config_path: Some("/etc/wharf/config/default.toml".to_string()),
+                log_filter: None,
+            })
+        );
+        assert_eq!(
+            parse_cli_args(["-c=/etc/wharf/config/default.toml"]).unwrap(),
+            CliAction::Run(CliOptions {
+                config_path: Some("/etc/wharf/config/default.toml".to_string()),
+                log_filter: None,
+            })
+        );
+        assert_eq!(
+            parse_cli_args(["--config=/etc/wharf/config/default"]).unwrap(),
+            CliAction::Run(CliOptions {
+                config_path: Some("/etc/wharf/config/default".to_string()),
+                log_filter: None,
+            })
+        );
+    }
+
+    #[test]
+    fn cli_parses_log_filter() {
+        assert_eq!(
+            parse_cli_args(["--log-level", "debug"]).unwrap(),
+            CliAction::Run(CliOptions {
+                config_path: None,
+                log_filter: Some("debug".to_string()),
+            })
+        );
+        assert_eq!(
+            parse_cli_args(["--log-level=wharf=debug,actix_web=info"]).unwrap(),
+            CliAction::Run(CliOptions {
+                config_path: None,
+                log_filter: Some("wharf=debug,actix_web=info".to_string()),
+            })
+        );
+    }
+
+    #[test]
+    fn cli_rejects_missing_option_values() {
+        assert_eq!(
+            parse_cli_args(["--config"]).unwrap_err(),
+            "选项 '--config' 需要一个配置文件路径"
+        );
+        assert_eq!(
+            parse_cli_args(["--config", "--log-level"]).unwrap_err(),
+            "选项 '--config' 需要一个配置文件路径"
+        );
+        assert_eq!(
+            parse_cli_args(["--log-level="]).unwrap_err(),
+            "选项 '--log-level' 的值不能为空"
+        );
+    }
+
+    #[test]
+    fn cli_help_text_is_chinese() {
+        let help = help_text();
+        assert!(help.contains("用法:"));
+        assert!(help.contains("优先级:"));
+        assert!(help.contains("兼容说明:"));
+    }
+
+    #[test]
+    fn startup_config_error_is_human_readable() {
+        let error = AppError::ConfigLoad {
+            path: config::DEFAULT_CONFIG_FILE.to_string(),
+            source: ::config::ConfigError::Message(
+                "configuration file \"config/default\" not found".to_string(),
+            ),
+        };
+        let message = startup_error_message(&error);
+
+        assert!(message.contains("配置文件加载失败"));
+        assert!(message.contains("路径: config/default"));
+        assert!(message.contains("cp config/default.toml.example config/default.toml"));
+        assert!(message.contains("wharf --config /etc/wharf/config/default.toml"));
+        assert!(!message.contains("TlsConfig"));
     }
 }

@@ -9,6 +9,12 @@ pub enum AppError {
     #[error("TLS configuration failed to load: {0}")]
     TlsConfig(String),
 
+    #[error("Configuration failed to load from {path}: {source}")]
+    ConfigLoad {
+        path: String,
+        source: ::config::ConfigError,
+    },
+
     #[error("Rustls error")]
     Rustls(#[from] rustls::Error),
 
@@ -24,6 +30,7 @@ impl ResponseError for AppError {
         match self {
             AppError::UpstreamRequest(_) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::TlsConfig(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            AppError::ConfigLoad { .. } => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::InvalidRequest(_) => StatusCode::BAD_REQUEST,
             AppError::Io(_) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::Rustls(_) => StatusCode::INTERNAL_SERVER_ERROR,
