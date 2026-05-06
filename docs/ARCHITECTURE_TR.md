@@ -1,6 +1,6 @@
-# Docxy Teknik Mimari ve Prensipler
+# Wharf Teknik Mimari ve Prensipler
 
-Bu belge, Docxy projesinin arka planını, teknik prensiplerini, sistem mimarisini ve uygulama akışını detaylandırmaktadır.
+Bu belge, Wharf projesinin arka planını, teknik prensiplerini, sistem mimarisini ve uygulama akışını detaylandırmaktadır.
 
 ## Arka Plan
 
@@ -24,7 +24,7 @@ Bir görüntü proxy'si, Docker istemcisini Docker Hub ile bağlayan bir aracı 
 - Ağ erişim kısıtlamaları sorunları
 - Görüntü indirme hızlarını artırma
 
-Docxy, ağ engellemelerini aşmayı ve görüntü indirmelerini hızlandırmayı amaçlayan böyle bir görüntü proxy hizmetidir.
+Wharf, ağ engellemelerini aşmayı ve görüntü indirmelerini hızlandırmayı amaçlayan böyle bir görüntü proxy hizmetidir.
 
 ### Görüntü Proxy'sinin Kullanım Limitleri
 
@@ -44,7 +44,7 @@ Docker Hub, görüntü çekme işlemlerinde katı hız sınırlama politikaları
 
 ## Teknik Prensipler
 
-Docxy, Docker Kayıt Defteri API'si için eksiksiz bir proxy uygular ve kullanılmak üzere Docker istemcisine yalnızca bir proxy yapılandırması eklenmesini gerektirir.
+Wharf, Docker Kayıt Defteri API'si için eksiksiz bir proxy uygular ve kullanılmak üzere Docker istemcisine yalnızca bir proxy yapılandırması eklenmesini gerektirir.
 
 ### Sistem Mimarisi
 
@@ -78,7 +78,7 @@ graph TD
 sequenceDiagram
     autonumber
     actor Client as Docker İstemcisi
-    participant Proxy as Docxy Proxy
+    participant Proxy as Wharf Proxy
     participant Registry as Docker Kayıt Defteri
     participant Auth as Docker Kimlik Doğrulama Hizmeti
     

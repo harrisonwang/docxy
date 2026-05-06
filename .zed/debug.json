@@ -3,7 +3,7 @@
     "label": "Build & Debug native binary",
     "adapter": "CodeLLDB",
     "request": "launch",
-    "program": "target/debug/docxy",
+    "program": "target/debug/wharf",
     "build": {
       "command": "cargo",
       "args": ["build"]

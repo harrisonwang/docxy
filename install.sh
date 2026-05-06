@@ -8,8 +8,8 @@ NC='\033[0m' # 无颜色
 
 # 初始化变量
 USE_EXISTING_CERT=false
-DOCXY_CERT_PATH=""
-DOCXY_KEY_PATH=""
+WHARF_CERT_PATH=""
+WHARF_KEY_PATH=""
 HTTP_PORT=80
 HTTPS_PORT=443
 DEPLOYMENT_MODE=""
@@ -76,25 +76,25 @@ ask_certificate_option() {
 # 获取已有证书路径
 get_certificate_paths() {
   echo -e "${YELLOW}请输入证书完整路径 (fullchain.cer 或 .pem):${NC}"
-  read -r DOCXY_CERT_PATH
+  read -r WHARF_CERT_PATH
 
   echo -e "${YELLOW}请输入私钥完整路径 (.key):${NC}"
-  read -r DOCXY_KEY_PATH
+  read -r WHARF_KEY_PATH
 
   # 验证文件是否存在
-  if [ ! -f "$DOCXY_CERT_PATH" ]; then
-    echo -e "${RED}证书文件不存在: $DOCXY_CERT_PATH${NC}"
+  if [ ! -f "$WHARF_CERT_PATH" ]; then
+    echo -e "${RED}证书文件不存在: $WHARF_CERT_PATH${NC}"
     exit 1
   fi
 
-  if [ ! -f "$DOCXY_KEY_PATH" ]; then
-    echo -e "${RED}私钥文件不存在: $DOCXY_KEY_PATH${NC}"
+  if [ ! -f "$WHARF_KEY_PATH" ]; then
+    echo -e "${RED}私钥文件不存在: $WHARF_KEY_PATH${NC}"
     exit 1
   fi
 
   echo -e "${GREEN}将使用以下证书文件:${NC}"
-  echo -e "证书: ${YELLOW}$DOCXY_CERT_PATH${NC}"
-  echo -e "私钥: ${YELLOW}$DOCXY_KEY_PATH${NC}"
+  echo -e "证书: ${YELLOW}$WHARF_CERT_PATH${NC}"
+  echo -e "私钥: ${YELLOW}$WHARF_KEY_PATH${NC}"
 }
 
 # 添加部署模式询问函数
@@ -139,13 +139,13 @@ set_mode_parameters() {
       ;;
     "nginx")
       BEHIND_PROXY=true
-      HTTPS_ENABLED=false # docxy本身不处理https
+      HTTPS_ENABLED=false # wharf本身不处理https
       HTTP_ENABLED=true
       PUBLIC_BASE_URL="https://${DOMAIN}"
-      echo -e "${YELLOW}请输入 docxy 后端监听的HTTP端口 (默认: 9000):${NC}"
+      echo -e "${YELLOW}请输入 wharf 后端监听的HTTP端口 (默认: 9000):${NC}"
       read -r HTTP_PORT_INPUT
       HTTP_PORT=${HTTP_PORT_INPUT:-9000}
-      echo -e "${GREEN}docxy 将在代理模式下运行，监听端口: ${HTTP_PORT}${NC}"
+      echo -e "${GREEN}wharf 将在代理模式下运行，监听端口: ${HTTP_PORT}${NC}"
       ask_certificate_option
       ;;
     "standalone_http")
@@ -227,26 +227,26 @@ get_certificate() {
   fi
 
   # 设置证书路径变量
-  DOCXY_CERT_PATH=~/.acme.sh/"$DOMAIN"_ecc/fullchain.cer
-  DOCXY_KEY_PATH=~/.acme.sh/"$DOMAIN"_ecc/"$DOMAIN".key
+  WHARF_CERT_PATH=~/.acme.sh/"$DOMAIN"_ecc/fullchain.cer
+  WHARF_KEY_PATH=~/.acme.sh/"$DOMAIN"_ecc/"$DOMAIN".key
 
   echo -e "${GREEN}证书文件已生成:${NC}"
-  echo -e "证书: ${YELLOW}$DOCXY_CERT_PATH${NC}"
-  echo -e "私钥: ${YELLOW}$DOCXY_KEY_PATH${NC}"
+  echo -e "证书: ${YELLOW}$WHARF_CERT_PATH${NC}"
+  echo -e "私钥: ${YELLOW}$WHARF_KEY_PATH${NC}"
 }
 
-# 下载 docxy
-download_docxy() {
-  echo -e "${YELLOW}正在下载 docxy...${NC}"
+# 下载 wharf
+download_wharf() {
+  echo -e "${YELLOW}正在下载 wharf...${NC}"
 
   # 创建目录
   mkdir -p /usr/local/bin
 
   # 获取最新版本号
   echo -e "${YELLOW}正在获取最新版本...${NC}"
-  LATEST_VERSION=$(curl -s https://api.github.com/repos/harrisonwang/docxy/releases/latest | grep -oP '"tag_name": "\K(.*)(?=")' || echo "v0.5.17")
+  LATEST_VERSION=$(curl -s https://api.github.com/repos/harrisonwang/wharf/releases/latest | grep -oP '"tag_name": "\K(.*)(?=")' || echo "v0.5.21")
   if [ -z "$LATEST_VERSION" ]; then
-    LATEST_VERSION="v0.5.17"
+    LATEST_VERSION="v0.5.21"
     echo -e "${YELLOW}无法获取最新版本，使用默认版本: $LATEST_VERSION${NC}"
   else
     echo -e "${GREEN}找到最新版本: $LATEST_VERSION${NC}"
@@ -255,53 +255,53 @@ download_docxy() {
   # 检测系统架构
   ARCH=$(uname -m)
   if [ "$ARCH" = "x86_64" ]; then
-    BINARY="docxy-${LATEST_VERSION}-linux-amd64"
+    BINARY="wharf-${LATEST_VERSION}-linux-amd64"
   elif [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then
-    BINARY="docxy-${LATEST_VERSION}-linux-arm64"
+    BINARY="wharf-${LATEST_VERSION}-linux-arm64"
   else
     echo -e "${RED}不支持的系统架构: $ARCH${NC}"
     exit 1
   fi
 
   # 下载二进制文件
-  curl -L "https://github.com/harrisonwang/docxy/releases/download/$LATEST_VERSION/$BINARY" -o /usr/local/bin/docxy || {
-    echo -e "${RED}下载 docxy 失败${NC}"
+  curl -L "https://github.com/harrisonwang/wharf/releases/download/$LATEST_VERSION/$BINARY" -o /usr/local/bin/wharf || {
+    echo -e "${RED}下载 wharf 失败${NC}"
     exit 1
   }
 
   # 设置执行权限
-  chmod +x /usr/local/bin/docxy
+  chmod +x /usr/local/bin/wharf
 
-  echo -e "${GREEN}docxy 下载成功到 /usr/local/bin/docxy${NC}"
+  echo -e "${GREEN}wharf 下载成功到 /usr/local/bin/wharf${NC}"
 }
 
 # 复制默认配置文件
 copy_default_config() {
   echo -e "${YELLOW}正在复制和配置默认配置文件...${NC}"
-  mkdir -p /etc/docxy/config/
-  curl -Ls https://raw.githubusercontent.com/harrisonwang/docxy/main/config/default.toml.example -o /etc/docxy/config/default.toml || {
+  mkdir -p /etc/wharf/config/
+  curl -Ls https://raw.githubusercontent.com/harrisonwang/wharf/main/config/default.toml.example -o /etc/wharf/config/default.toml || {
     echo -e "${RED}下载默认配置文件失败${NC}"
     exit 1
   }
 
   # 修改 default.toml 中的配置
-  sed -i "s/^http_port = .*/http_port = ${HTTP_PORT}/" /etc/docxy/config/default.toml
-  sed -i "s/^https_port = .*/https_port = ${HTTPS_PORT}/" /etc/docxy/config/default.toml
-  sed -i "s/^http_enabled = .*/http_enabled = ${HTTP_ENABLED}/" /etc/docxy/config/default.toml
-  sed -i "s/^https_enabled = .*/https_enabled = ${HTTPS_ENABLED}/" /etc/docxy/config/default.toml
-  sed -i "s/^behind_proxy = .*/behind_proxy = ${BEHIND_PROXY}/" /etc/docxy/config/default.toml
-  sed -i "s#^public_base_url = .*#public_base_url = \"${PUBLIC_BASE_URL}\"#" /etc/docxy/config/default.toml
-  sed -i "s#^cert_path = .*#cert_path = \"${DOCXY_CERT_PATH}\"#" /etc/docxy/config/default.toml
-  sed -i "s#^key_path = .*#key_path = \"${DOCXY_KEY_PATH}\"#" /etc/docxy/config/default.toml
+  sed -i "s/^http_port = .*/http_port = ${HTTP_PORT}/" /etc/wharf/config/default.toml
+  sed -i "s/^https_port = .*/https_port = ${HTTPS_PORT}/" /etc/wharf/config/default.toml
+  sed -i "s/^http_enabled = .*/http_enabled = ${HTTP_ENABLED}/" /etc/wharf/config/default.toml
+  sed -i "s/^https_enabled = .*/https_enabled = ${HTTPS_ENABLED}/" /etc/wharf/config/default.toml
+  sed -i "s/^behind_proxy = .*/behind_proxy = ${BEHIND_PROXY}/" /etc/wharf/config/default.toml
+  sed -i "s#^public_base_url = .*#public_base_url = \"${PUBLIC_BASE_URL}\"#" /etc/wharf/config/default.toml
+  sed -i "s#^cert_path = .*#cert_path = \"${WHARF_CERT_PATH}\"#" /etc/wharf/config/default.toml
+  sed -i "s#^key_path = .*#key_path = \"${WHARF_KEY_PATH}\"#" /etc/wharf/config/default.toml
 
-  echo -e "${GREEN}默认配置文件已复制并配置到 /etc/docxy/config/default.toml${NC}"
+  echo -e "${GREEN}默认配置文件已复制并配置到 /etc/wharf/config/default.toml${NC}"
 }
 
 # 修改systemd服务创建函数
 create_service() {
   echo -e "${YELLOW}正在创建 systemd 服务...${NC}"
 
-  cat > /etc/systemd/system/docxy.service << EOF
+  cat > /etc/systemd/system/wharf.service << EOF
 [Unit]
 Description=Docker Registry Proxy
 After=network.target
@@ -310,10 +310,10 @@ After=network.target
 Type=simple
 User=root
 Environment="RUST_LOG=info"
-ExecStart=/usr/local/bin/docxy
+ExecStart=/usr/local/bin/wharf
 Restart=on-failure
 RestartSec=5s
-WorkingDirectory=/etc/docxy
+WorkingDirectory=/etc/wharf
 
 [Install]
 WantedBy=multi-user.target
@@ -327,16 +327,16 @@ EOF
 
 # 启动服务
 start_service() {
-  echo -e "${YELLOW}正在启动 docxy 服务...${NC}"
+  echo -e "${YELLOW}正在启动 wharf 服务...${NC}"
 
-  systemctl enable docxy
-  systemctl start docxy
+  systemctl enable wharf
+  systemctl start wharf
 
   # 检查服务状态
-  if systemctl is-active --quiet docxy; then
-    echo -e "${GREEN}docxy 服务已成功启动${NC}"
+  if systemctl is-active --quiet wharf; then
+    echo -e "${GREEN}wharf 服务已成功启动${NC}"
   else
-    echo -e "${RED}docxy 服务启动失败，请检查日志: journalctl -u docxy${NC}"
+    echo -e "${RED}wharf 服务启动失败，请检查日志: journalctl -u wharf${NC}"
     exit 1
   fi
 }
@@ -358,8 +358,8 @@ show_instructions() {
     echo -e "    server_name ${DOMAIN};"
     echo -e ""
     echo -e "    # SSL 配置 (请确保路径正确)"
-    echo -e "    ssl_certificate ${DOCXY_CERT_PATH};"
-    echo -e "    ssl_certificate_key ${DOCXY_KEY_PATH};"
+    echo -e "    ssl_certificate ${WHARF_CERT_PATH};"
+    echo -e "    ssl_certificate_key ${WHARF_KEY_PATH};"
     echo -e ""
     echo -e "    location / {"
     echo -e "        proxy_pass http://127.0.0.1:${HTTP_PORT};"
@@ -399,11 +399,11 @@ show_instructions() {
   echo -e "\n2. 重启 Docker 服务:"
   echo -e "   ${YELLOW}systemctl restart docker${NC}\n"
   echo -e "3. 服务管理命令:"
-  echo -e "   ${YELLOW}启动: systemctl start docxy${NC}"
-  echo -e "   ${YELLOW}停止: systemctl stop docxy${NC}"
-  echo -e "   ${YELLOW}重启: systemctl restart docxy${NC}"
-  echo -e "   ${YELLOW}查看状态: systemctl status docxy${NC}"
-  echo -e "   ${YELLOW}查看日志: journalctl -u docxy${NC}\n"
+  echo -e "   ${YELLOW}启动: systemctl start wharf${NC}"
+  echo -e "   ${YELLOW}停止: systemctl stop wharf${NC}"
+  echo -e "   ${YELLOW}重启: systemctl restart wharf${NC}"
+  echo -e "   ${YELLOW}查看状态: systemctl status wharf${NC}"
+  echo -e "   ${YELLOW}查看日志: journalctl -u wharf${NC}\n"
   echo -e "4. 健康检查:"
   if [ "$DEPLOYMENT_MODE" = "standalone_http" ]; then
     echo -e "   ${YELLOW}curl http://${DOMAIN}:${HTTP_PORT}/health${NC}\n"
@@ -457,8 +457,8 @@ server {
     server_name $DOMAIN;
 
     # SSL 配置
-    ssl_certificate $DOCXY_CERT_PATH;
-    ssl_certificate_key $DOCXY_KEY_PATH;
+    ssl_certificate $WHARF_CERT_PATH;
+    ssl_certificate_key $WHARF_KEY_PATH;
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_prefer_server_ciphers on;
     ssl_ciphers 'ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384';
@@ -515,7 +515,7 @@ main() {
   check_ports
 
   # 下载、配置和启动服务
-  download_docxy
+  download_wharf
   create_service
   copy_default_config
   start_service

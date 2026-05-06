@@ -1,6 +1,6 @@
-# Docxy
+# Wharf
 
-![og-image](og-image.png)
+![og-image](og-image.svg)
 
 [![English](https://img.shields.io/badge/English-Click-orange)](README_EN.md)
 [![简体中文](https://img.shields.io/badge/简体中文-点击查看-blue)](README.md)
@@ -12,7 +12,7 @@
 
 A lightweight Docker image proxy service, designed to solve the problem of restricted access to Docker Hub in mainland China.
 
-> 📢 **Blog Tutorial:** [**Say Goodbye to Docker Hub Connection Timeouts! Build Your Exclusive Image Accelerator with Docxy**](https://voxsay.com/posts/docxy-docker-proxy-tutorial-for-china/)
+> 📢 **Blog Tutorial:** [**Say Goodbye to Docker Hub Connection Timeouts! Build Your Exclusive Image Accelerator with Wharf**](https://voxsay.com/posts/docxy-docker-proxy-tutorial-for-china/)
 
 ## Core Features
 
@@ -34,7 +34,7 @@ A lightweight Docker image proxy service, designed to solve the problem of restr
 We provide a one-click installation script to simplify the deployment process. Before starting, please ensure your domain name is resolved to the target host.
 
 ```bash
-bash <(curl -Ls https://raw.githubusercontent.com/harrisonwang/docxy/main/install.sh)
+bash <(curl -Ls https://raw.githubusercontent.com/harrisonwang/wharf/main/install.sh)
 ```
 
 The script will guide you through the installation and offers the following three deployment modes:
@@ -43,7 +43,7 @@ The script will guide you through the installation and offers the following thre
 
 ### Mode One: Standalone (HTTPS)
 
-This is the simplest and most recommended mode. Docxy will directly listen on ports 80 and 443, providing a complete HTTPS proxy service.
+This is the simplest and most recommended mode. Wharf will directly listen on ports 80 and 443, providing a complete HTTPS proxy service.
 
 **Features:**
 - No need for additional web server configuration.
@@ -66,14 +66,14 @@ This is the simplest and most recommended mode. Docxy will directly listen on po
 This mode is suitable if you already have Nginx and wish to manage web services centrally through it.
 
 **Features:**
-- Nginx handles HTTPS encryption and certificate management, with Docxy running as a plain HTTP backend.
-- Docxy runs as a backend HTTP service on a specified port (e.g., 9000).
+- Nginx handles HTTPS encryption and certificate management, with Wharf running as a plain HTTP backend.
+- Wharf runs as a backend HTTP service on a specified port (e.g., 9000).
 - Convenient for integration with other services.
 
 **Installation Process:**
 1.  Run the one-click installation script.
 2.  When prompted for mode selection, enter `2`.
-3.  Follow the prompts to enter your domain name, Docxy backend listening port, and certificate information.
+3.  Follow the prompts to enter your domain name, Wharf backend listening port, and certificate information.
 4.  The script will automatically generate an example Nginx configuration file for you. You will need to manually add it to your Nginx configuration and reload the Nginx service.
 
 </details>
@@ -85,18 +85,18 @@ This mode is suitable if you already have Nginx and wish to manage web services 
 
 ### Mode Three: CDN Origin (HTTP)
 
-This mode is suitable if you want to use Docxy as the origin for a CDN to achieve better global acceleration.
+This mode is suitable if you want to use Wharf as the origin for a CDN to achieve better global acceleration.
 
 **Features:**
-- Docxy only listens on HTTP ports.
+- Wharf only listens on HTTP ports.
 - The CDN provider handles HTTPS requests and certificates.
-- Docxy trusts and processes `X-Forwarded-*` headers to correctly identify client IP and protocol.
+- Wharf trusts and processes `X-Forwarded-*` headers to correctly identify client IP and protocol.
 
 **Installation Process:**
 1.  Run the one-click installation script.
 2.  When prompted for mode selection, enter `3`.
-3.  Follow the prompts to enter the HTTP port Docxy should listen on.
-4.  Configure your CDN service to point its origin to the Docxy service address and port.
+3.  Follow the prompts to enter the HTTP port Wharf should listen on.
+4.  Configure your CDN service to point its origin to the Wharf service address and port.
 
 </details>
 
@@ -128,7 +128,7 @@ This is the basic configuration, pointing Docker's default requests to your prox
 
 ### Multi-Registry Proxy
 
-Docxy can proxy multiple upstream registries in the same service process. Docker Hub can still use `registry-mirrors`; GHCR, Quay.io, and other non-Docker Hub registries should be pulled through their configured proxy hostnames.
+Wharf can proxy multiple upstream registries in the same service process. Docker Hub can still use `registry-mirrors`; GHCR, Quay.io, and other non-Docker Hub registries should be pulled through their configured proxy hostnames.
 
 Example configuration:
 
@@ -229,12 +229,12 @@ This method allows you to get a higher image pull rate by logging in with your D
 
 1.  **Clone Repository**
     ```bash
-    git clone https://github.com/harrisonwang/docxy.git
-    cd docxy
+    git clone https://github.com/harrisonwang/wharf.git
+    cd wharf
     ```
 
 2.  **Modify Configuration File**
-    Open `config/default.toml.example`, copy it to `config/default.toml`, then update the config. For local development, run Docxy on local HTTP (8080) and expose an HTTPS public domain via a tunnel.
+    Open `config/default.toml.example`, copy it to `config/default.toml`, then update the config. For local development, run Wharf on local HTTP (8080) and expose an HTTPS public domain via a tunnel.
 
     ```bash
     cp config/default.toml.example config/default.toml
@@ -261,8 +261,8 @@ This method allows you to get a higher image pull rate by logging in with your D
     auto_library_prefix = true
 
     [tls]
-    cert_path = "/tmp/docxy-dev.crt"
-    key_path = "/tmp/docxy-dev.key"
+    cert_path = "/tmp/wharf-dev.crt"
+    key_path = "/tmp/wharf-dev.key"
     ```
 
     Notes:

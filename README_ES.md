@@ -1,6 +1,6 @@
-# Docxy
+# Wharf
 
-![og-image](og-image.png)
+![og-image](og-image.svg)
 
 [![English](https://img.shields.io/badge/English-Click-orange)](README_EN.md)
 [![简体中文](https://img.shields.io/badge/简体中文-点击查看-blue)](README.md)
@@ -12,7 +12,7 @@
 
 Un servicio ligero de proxy de imágenes Docker, diseñado para resolver el problema del acceso restringido a Docker Hub en China continental.
 
-> 📢 **Tutorial del Blog:** [**¡Diga adiós a los tiempos de espera de conexión de Docker Hub! Construya su acelerador de imágenes exclusivo con Docxy**](https://voxsay.com/posts/docxy-docker-proxy-tutorial-for-china/)
+> 📢 **Tutorial del Blog:** [**¡Diga adiós a los tiempos de espera de conexión de Docker Hub! Construya su acelerador de imágenes exclusivo con Wharf**](https://voxsay.com/posts/docxy-docker-proxy-tutorial-for-china/)
 
 ## Características Principales
 
@@ -34,7 +34,7 @@ Un servicio ligero de proxy de imágenes Docker, diseñado para resolver el prob
 Proporcionamos un script de instalación con un solo clic para simplificar el proceso de despliegue. Antes de comenzar, asegúrese de que su nombre de dominio esté resuelto al host de destino.
 
 ```bash
-bash <(curl -Ls https://raw.githubusercontent.com/harrisonwang/docxy/main/install.sh)
+bash <(curl -Ls https://raw.githubusercontent.com/harrisonwang/wharf/main/install.sh)
 ```
 
 El script le guiará a través de la instalación y ofrece los siguientes tres modos de despliegue:
@@ -43,7 +43,7 @@ El script le guiará a través de la instalación y ofrece los siguientes tres m
 
 ### Modo Uno: Autónomo (HTTPS)
 
-Este es el modo más simple y recomendado. Docxy escuchará directamente en los puertos 80 y 443, proporcionando un servicio de proxy HTTPS completo.
+Este es el modo más simple y recomendado. Wharf escuchará directamente en los puertos 80 y 443, proporcionando un servicio de proxy HTTPS completo.
 
 **Características:**
 - No necesita configuración adicional del servidor web.
@@ -66,14 +66,14 @@ Este es el modo más simple y recomendado. Docxy escuchará directamente en los 
 Este modo es adecuado si ya tiene Nginx y desea administrar los servicios web de forma centralizada a través de él.
 
 **Características:**
-- Nginx maneja el cifrado HTTPS y la gestión de certificados, con Docxy ejecutándose como un backend HTTP simple.
-- Docxy se ejecuta como un servicio HTTP de backend en un puerto especificado (por ejemplo, 9000).
+- Nginx maneja el cifrado HTTPS y la gestión de certificados, con Wharf ejecutándose como un backend HTTP simple.
+- Wharf se ejecuta como un servicio HTTP de backend en un puerto especificado (por ejemplo, 9000).
 - Conveniente para la integración con otros servicios.
 
 **Proceso de Instalación:**
 1.  Ejecute el script de instalación con un solo clic.
 2.  Cuando se le solicite la selección de modo, ingrese `2`.
-3.  Siga las indicaciones para ingresar su nombre de dominio, el puerto de escucha del backend de Docxy y la información del certificado.
+3.  Siga las indicaciones para ingresar su nombre de dominio, el puerto de escucha del backend de Wharf y la información del certificado.
 4.  El script generará automáticamente un archivo de configuración de Nginx de ejemplo para usted. Deberá agregarlo manualmente a su configuración de Nginx y recargar el servicio de Nginx.
 
 </details>
@@ -85,18 +85,18 @@ Este modo es adecuado si ya tiene Nginx y desea administrar los servicios web de
 
 ### Modo Tres: Origen CDN (HTTP)
 
-Este modo es adecuado si desea utilizar Docxy como origen para una CDN para lograr una mejor aceleración global.
+Este modo es adecuado si desea utilizar Wharf como origen para una CDN para lograr una mejor aceleración global.
 
 **Características:**
-- Docxy solo escucha en puertos HTTP.
+- Wharf solo escucha en puertos HTTP.
 - El proveedor de CDN maneja las solicitudes HTTPS y los certificados.
-- Docxy confía y procesa los encabezados `X-Forwarded-*` para identificar correctamente la IP del cliente y el protocolo.
+- Wharf confía y procesa los encabezados `X-Forwarded-*` para identificar correctamente la IP del cliente y el protocolo.
 
 **Proceso de Instalación:**
 1.  Ejecute el script de instalación con un solo clic.
 2.  Cuando se le solicite la selección de modo, ingrese `3`.
-3.  Siga las indicaciones para ingresar el puerto HTTP en el que Docxy debe escuchar.
-4.  Configure su servicio CDN para que apunte su origen a la dirección y puerto del servicio Docxy.
+3.  Siga las indicaciones para ingresar el puerto HTTP en el que Wharf debe escuchar.
+4.  Configure su servicio CDN para que apunte su origen a la dirección y puerto del servicio Wharf.
 
 </details>
 
@@ -182,8 +182,8 @@ Este método le permite obtener una mayor tasa de extracción de imágenes inici
 
 1.  **Clonar Repositorio**
     ```bash
-    git clone https://github.com/harrisonwang/docxy.git
-    cd docxy
+    git clone https://github.com/harrisonwang/wharf.git
+    cd wharf
     ```
 
 2.  **Modificar Archivo de Configuración**

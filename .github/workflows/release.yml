@@ -38,8 +38,8 @@ jobs:
 
       - name: 准备二进制文件
         run: |
-          cp target/release/docxy docxy-v${{ steps.get_version.outputs.VERSION }}-linux-amd64
-          chmod +x docxy-v${{ steps.get_version.outputs.VERSION }}-linux-amd64
+          cp target/release/wharf wharf-v${{ steps.get_version.outputs.VERSION }}-linux-amd64
+          chmod +x wharf-v${{ steps.get_version.outputs.VERSION }}-linux-amd64
 
       - name: 创建 Release
         id: create_release
@@ -47,7 +47,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref }}
-          name: docxy ${{ steps.get_version.outputs.VERSION }}
+          name: wharf ${{ steps.get_version.outputs.VERSION }}
           draft: false
           prerelease: false
           body: |
@@ -57,14 +57,14 @@ jobs:
             - Linux AMD64 (x86_64)
             - Linux ARM (aarch64)
           files: |
-            ./docxy-v${{ steps.get_version.outputs.VERSION }}-linux-amd64
+            ./wharf-v${{ steps.get_version.outputs.VERSION }}-linux-amd64
 
       - name: 上传构建产物（分支 / 手动）
         if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
         uses: actions/upload-artifact@v4
         with:
-          name: docxy-linux-amd64-${{ steps.get_version.outputs.VERSION }}
-          path: ./docxy-v${{ steps.get_version.outputs.VERSION }}-linux-amd64
+          name: wharf-linux-amd64-${{ steps.get_version.outputs.VERSION }}
+          path: ./wharf-v${{ steps.get_version.outputs.VERSION }}-linux-amd64
 
   build-and-release-arm64:
     name: 构建与发布 ARM64
@@ -95,19 +95,19 @@ jobs:
 
       - name: 准备二进制文件
         run: |
-          cp target/release/docxy docxy-v${{ steps.get_version.outputs.VERSION }}-linux-arm64
-          chmod +x docxy-v${{ steps.get_version.outputs.VERSION }}-linux-arm64
+          cp target/release/wharf wharf-v${{ steps.get_version.outputs.VERSION }}-linux-arm64
+          chmod +x wharf-v${{ steps.get_version.outputs.VERSION }}-linux-arm64
 
       - name: 上传到已存在的 Release
         if: ${{ startsWith(github.ref, 'refs/tags/v') }}
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            ./docxy-v${{ steps.get_version.outputs.VERSION }}-linux-arm64
+            ./wharf-v${{ steps.get_version.outputs.VERSION }}-linux-arm64
 
       - name: 上传构建产物（分支 / 手动）
         if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
         uses: actions/upload-artifact@v4
         with:
-          name: docxy-linux-arm64-${{ steps.get_version.outputs.VERSION }}
-          path: ./docxy-v${{ steps.get_version.outputs.VERSION }}-linux-arm64
+          name: wharf-linux-arm64-${{ steps.get_version.outputs.VERSION }}
+          path: ./wharf-v${{ steps.get_version.outputs.VERSION }}-linux-arm64

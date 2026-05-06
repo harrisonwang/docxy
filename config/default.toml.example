@@ -14,7 +14,7 @@ auth_service = "registry.docker.io"
 auto_library_prefix = true
 
 # Multi-registry mode. Uncomment and set hosts/public_base_url after pointing
-# these domains to the same Docxy service.
+# these domains to the same Wharf service.
 #
 # [[registry.upstreams]]
 # name = "dockerhub"

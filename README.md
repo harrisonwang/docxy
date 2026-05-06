@@ -1,6 +1,6 @@
-# Docxy
+# Wharf
 
-![og-image](og-image.png)
+![og-image](og-image.svg)
 
 [![English](https://img.shields.io/badge/English-Click-orange)](README_EN.md)
 [![简体中文](https://img.shields.io/badge/简体中文-点击查看-blue)](README.md)
@@ -12,7 +12,9 @@
 
 轻量级 Docker 镜像代理服务，旨在解决国内访问 Docker Hub 受限问题。
 
-> 📢 **使用教程:** [**跟 Docker Hub 连接超时说拜拜！用 Docxy 自建专属镜像加速器**](https://voxsay.com/posts/docxy-docker-proxy-tutorial-for-china/)
+> **更名说明:** 本项目已由 **Docxy** 更名为 **Wharf**。后续二进制命令、安装目录、systemd 服务和 Release 产物统一使用 `wharf`；旧文档或博客中出现的 Docxy 指向同一个项目。
+
+> 📢 **使用教程:** [**跟 Docker Hub 连接超时说拜拜！用 Wharf 自建专属镜像加速器**](https://voxsay.com/posts/docxy-docker-proxy-tutorial-for-china/)
 
 ## 核心特性
 
@@ -34,7 +36,7 @@
 我们提供了一键安装脚本来简化部署流程，在开始前，请提前将您的域名解析到目标主机。
 
 ```bash
-bash <(curl -Ls https://raw.githubusercontent.com/harrisonwang/docxy/main/install.sh)
+bash <(curl -Ls https://raw.githubusercontent.com/harrisonwang/wharf/main/install.sh)
 ```
 
 脚本将引导您完成安装，并提供以下三种部署模式：
@@ -43,7 +45,7 @@ bash <(curl -Ls https://raw.githubusercontent.com/harrisonwang/docxy/main/instal
 
 ### 模式一：独立运行 (HTTPS)
 
-这是最简单、最推荐的模式。Docxy 将直接监听 80 和 443 端口，对外提供完整的 HTTPS 代理服务。
+这是最简单、最推荐的模式。Wharf 将直接监听 80 和 443 端口，对外提供完整的 HTTPS 代理服务。
 
 **特点:**
 - 无需额外配置 Web 服务器。
@@ -66,14 +68,14 @@ bash <(curl -Ls https://raw.githubusercontent.com/harrisonwang/docxy/main/instal
 此模式适用于您已经拥有并希望通过 Nginx 统一管理 Web 服务的场景。
 
 **特点:**
-- 由 Nginx 统一处理 HTTPS 加密和证书管理，Docxy 在后端以普通 HTTP 模式运行。
-- Docxy 作为后端 HTTP 服务运行在一个指定端口上 (如: 9000)。
+- 由 Nginx 统一处理 HTTPS 加密和证书管理，Wharf 在后端以普通 HTTP 模式运行。
+- Wharf 作为后端 HTTP 服务运行在一个指定端口上 (如: 9000)。
 - 方便与其他服务集成。
 
 **安装流程:**
 1.  运行一键安装脚本。
 2.  在模式选择时，输入 `2`。
-3.  根据提示输入您的域名、Docxy 后端监听端口以及证书信息。
+3.  根据提示输入您的域名、Wharf 后端监听端口以及证书信息。
 4.  脚本会自动为您生成一份 Nginx 配置文件示例，您需要手动将其添加到您的 Nginx 配置中，并重载 Nginx 服务。
 
 </details>
@@ -85,18 +87,18 @@ bash <(curl -Ls https://raw.githubusercontent.com/harrisonwang/docxy/main/instal
 
 ### 模式三：CDN 回源 (HTTP)
 
-此模式适用于您希望将 Docxy 作为 CDN 的源站，以获得更好的全球加速效果。
+此模式适用于您希望将 Wharf 作为 CDN 的源站，以获得更好的全球加速效果。
 
 **特点:**
-- Docxy 仅监听 HTTP 端口。
+- Wharf 仅监听 HTTP 端口。
 - 由 CDN 服务商负责处理 HTTPS 请求和证书。
-- Docxy 会信任并处理 `X-Forwarded-*` 头，以正确识别客户端 IP 和协议。
+- Wharf 会信任并处理 `X-Forwarded-*` 头，以正确识别客户端 IP 和协议。
 
 **安装流程:**
 1.  运行一键安装脚本。
 2.  在模式选择时，输入 `3`。
-3.  根据提示输入 Docxy 需要监听的 HTTP 端口。
-4.  配置您的 CDN 服务，将源站指向 Docxy 服务的地址和端口。
+3.  根据提示输入 Wharf 需要监听的 HTTP 端口。
+4.  配置您的 CDN 服务，将源站指向 Wharf 服务的地址和端口。
 
 </details>
 
@@ -128,7 +130,7 @@ bash <(curl -Ls https://raw.githubusercontent.com/harrisonwang/docxy/main/instal
 
 ### 多仓库代理
 
-Docxy 支持在同一个服务进程中配置多个上游仓库。Docker Hub 仍可通过 `registry-mirrors` 使用；GHCR、Quay.io 等非 Docker Hub 仓库需要使用对应的代理域名拉取。
+Wharf 支持在同一个服务进程中配置多个上游仓库。Docker Hub 仍可通过 `registry-mirrors` 使用；GHCR、Quay.io 等非 Docker Hub 仓库需要使用对应的代理域名拉取。
 
 示例配置：
 
@@ -229,8 +231,8 @@ docker login quay.example.com
 
 1.  **克隆仓库**
     ```bash
-    git clone https://github.com/harrisonwang/docxy.git
-    cd docxy
+    git clone https://github.com/harrisonwang/wharf.git
+    cd wharf
     ```
 
 2.  **修改配置文件**
@@ -261,8 +263,8 @@ docker login quay.example.com
     auto_library_prefix = true
 
     [tls]
-    cert_path = "/tmp/docxy-dev.crt"
-    key_path = "/tmp/docxy-dev.key"
+    cert_path = "/tmp/wharf-dev.crt"
+    key_path = "/tmp/wharf-dev.key"
     ```
 
     说明：

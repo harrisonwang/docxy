@@ -1,6 +1,6 @@
-# Docxy Technical Architecture & Principles
+# Wharf Technical Architecture & Principles
 
-This document details the background, technical principles, system architecture, and implementation flow of the Docxy project.
+This document details the background, technical principles, system architecture, and implementation flow of the Wharf project.
 
 ## Background
 
@@ -24,7 +24,7 @@ An image proxy is an intermediary service that connects the Docker client with D
 - Network access restriction issues
 - Improving image download speeds
 
-Docxy is such an image proxy service, aiming to bypass network blockades and accelerate image downloads by self-hosting a proxy.
+Wharf is such an image proxy service, aiming to bypass network blockades and accelerate image downloads by self-hosting a proxy.
 
 ### Usage Limits of an Image Proxy
 
@@ -44,7 +44,7 @@ Docker Hub imposes strict rate-limiting policies on image pulls. When using a pr
 
 ## Technical Principles
 
-Docxy implements a complete proxy for the Docker Registry API, requiring only the addition of a proxy configuration in the Docker client to be used.
+Wharf implements a complete proxy for the Docker Registry API, requiring only the addition of a proxy configuration in the Docker client to be used.
 
 ### System Architecture
 
@@ -78,7 +78,7 @@ graph TD
 sequenceDiagram
     autonumber
     actor Client
-    participant Proxy as Docxy Proxy
+    participant Proxy as Wharf Proxy
     participant Registry as Docker Registry
     participant Auth as Docker Auth Service
     

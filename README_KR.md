@@ -1,6 +1,6 @@
-# Docxy
+# Wharf
 
-![og-image](og-image.png)
+![og-image](og-image.svg)
 
 [![English](https://img.shields.io/badge/English-Click-orange)](README_EN.md)
 [![简体中文](https://img.shields.io/badge/简体中文-点击查看-blue)](README.md)
@@ -12,7 +12,7 @@
 
 Docker Hub에 대한 제한된 액세스 문제를 해결하기 위해 설계된 경량 Docker 이미지 프록시 서비스입니다.
 
-> 📢 **블로그 튜토리얼:** [**Docker Hub 연결 시간 초과에 작별을 고하세요! Docxy로 나만의 이미지 가속기 구축하기**](https://voxsay.com/posts/docxy-docker-proxy-tutorial-for-china/)
+> 📢 **블로그 튜토리얼:** [**Docker Hub 연결 시간 초과에 작별을 고하세요! Wharf로 나만의 이미지 가속기 구축하기**](https://voxsay.com/posts/docxy-docker-proxy-tutorial-for-china/)
 
 ## 핵심 기능
 
@@ -34,7 +34,7 @@ Docker Hub에 대한 제한된 액세스 문제를 해결하기 위해 설계된
 배포 프로세스를 단순화하기 위해 원클릭 설치 스크립트를 제공합니다. 시작하기 전에 도메인 이름이 대상 호스트로 확인되었는지 확인하십시오.
 
 ```bash
-bash <(curl -Ls https://raw.githubusercontent.com/harrisonwang/docxy/main/install.sh)
+bash <(curl -Ls https://raw.githubusercontent.com/harrisonwang/wharf/main/install.sh)
 ```
 
 스크립트는 설치 과정을 안내하며 다음 세 가지 배포 모드를 제공합니다.
@@ -43,7 +43,7 @@ bash <(curl -Ls https://raw.githubusercontent.com/harrisonwang/docxy/main/instal
 
 ### 모드 1: 독립 실행 (HTTPS)
 
-가장 간단하고 권장되는 모드입니다. Docxy는 80번 및 443번 포트에서 직접 수신 대기하며 완전한 HTTPS 프록시 서비스를 제공합니다.
+가장 간단하고 권장되는 모드입니다. Wharf는 80번 및 443번 포트에서 직접 수신 대기하며 완전한 HTTPS 프록시 서비스를 제공합니다.
 
 **특징:**
 - 추가 웹 서버 구성이 필요 없습니다.
@@ -66,14 +66,14 @@ bash <(curl -Ls https://raw.githubusercontent.com/harrisonwang/docxy/main/instal
 이 모드는 Nginx를 이미 가지고 있고 이를 통해 웹 서비스를 중앙에서 관리하려는 경우에 적합합니다.
 
 **특징:**
-- Nginx가 HTTPS 암호화 및 인증서 관리를 처리하며, Docxy는 일반 HTTP 백엔드로 실행됩니다.
-- Docxy는 지정된 포트 (예: 9000)에서 백엔드 HTTP 서비스로 실행됩니다.
+- Nginx가 HTTPS 암호화 및 인증서 관리를 처리하며, Wharf는 일반 HTTP 백엔드로 실행됩니다.
+- Wharf는 지정된 포트 (예: 9000)에서 백엔드 HTTP 서비스로 실행됩니다.
 - 다른 서비스와의 통합에 편리합니다.
 
 **설치 과정:**
 1.  원클릭 설치 스크립트를 실행합니다.
 2.  모드 선택 프롬프트에서 `2`를 입력합니다.
-3.  프롬프트에 따라 도메인 이름, Docxy 백엔드 수신 대기 포트 및 인증서 정보를 입력합니다.
+3.  프롬프트에 따라 도메인 이름, Wharf 백엔드 수신 대기 포트 및 인증서 정보를 입력합니다.
 4.  스크립트가 Nginx 구성 파일 예시를 자동으로 생성합니다. 이를 Nginx 구성에 수동으로 추가하고 Nginx 서비스를 다시 로드해야 합니다.
 
 </details>
@@ -85,18 +85,18 @@ bash <(curl -Ls https://raw.githubusercontent.com/harrisonwang/docxy/main/instal
 
 ### 모드 3: CDN 원본 (HTTP)
 
-이 모드는 Docxy를 CDN의 원본으로 사용하여 더 나은 전역 가속을 달성하려는 경우에 적합합니다.
+이 모드는 Wharf를 CDN의 원본으로 사용하여 더 나은 전역 가속을 달성하려는 경우에 적합합니다.
 
 **특징:**
-- Docxy는 HTTP 포트에서만 수신 대기합니다.
+- Wharf는 HTTP 포트에서만 수신 대기합니다.
 - CDN 공급자가 HTTPS 요청 및 인증서를 처리합니다.
-- Docxy는 클라이언트 IP 및 프로토콜을 올바르게 식별하기 위해 `X-Forwarded-*` 헤더를 신뢰하고 처리합니다.
+- Wharf는 클라이언트 IP 및 프로토콜을 올바르게 식별하기 위해 `X-Forwarded-*` 헤더를 신뢰하고 처리합니다.
 
 **설치 과정:**
 1.  원클릭 설치 스크립트를 실행합니다.
 2.  모드 선택 프롬프트에서 `3`을 입력합니다.
-3.  프롬프트에 따라 Docxy가 수신 대기해야 하는 HTTP 포트를 입력합니다.
-4.  CDN 서비스를 구성하여 원본을 Docxy 서비스 주소 및 포트로 지정합니다.
+3.  프롬프트에 따라 Wharf가 수신 대기해야 하는 HTTP 포트를 입력합니다.
+4.  CDN 서비스를 구성하여 원본을 Wharf 서비스 주소 및 포트로 지정합니다.
 
 </details>
 
@@ -182,8 +182,8 @@ bash <(curl -Ls https://raw.githubusercontent.com/harrisonwang/docxy/main/instal
 
 1.  **리포지토리 복제**
     ```bash
-    git clone https://github.com/harrisonwang/docxy.git
-    cd docxy
+    git clone https://github.com/harrisonwang/wharf.git
+    cd wharf
     ```
 
 2.  **구성 파일 수정**

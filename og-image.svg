@@ -1,0 +1,37 @@
+<svg width="1200" height="350" viewBox="0 0 1200 350" xmlns="http://www.w3.org/2000/svg">
+  <!-- 蓝色圆形背景 -->
+  <circle cx="200" cy="175" r="140" fill="#3B82F6"/>
+
+  <!-- Cube_BR: 底层右立方体(后) -->
+  <polygon points="187,140 213,155 187,170 161,155" fill="#FFFFFF"/>
+  <polygon points="161,155 187,170 187,200 161,185" fill="#FFFFFF" fill-opacity="0.65"/>
+  <polygon points="187,170 213,155 213,185 187,200" fill="#FFFFFF" fill-opacity="0.85"/>
+
+  <!-- Cube_BL: 底层左立方体(前) -->
+  <polygon points="135,140 161,155 135,170 109,155" fill="#FFFFFF"/>
+  <polygon points="109,155 135,170 135,200 109,185" fill="#FFFFFF" fill-opacity="0.65"/>
+  <polygon points="135,170 161,155 161,185 135,200" fill="#FFFFFF" fill-opacity="0.85"/>
+
+  <!-- Cube_T: 顶层立方体 -->
+  <polygon points="135,80 161,95 135,110 109,95" fill="#FFFFFF"/>
+  <polygon points="109,95 135,110 135,140 109,125" fill="#FFFFFF" fill-opacity="0.65"/>
+  <polygon points="135,110 161,95 161,125 135,140" fill="#FFFFFF" fill-opacity="0.85"/>
+
+  <!-- 水波 1 (主波纹，跨度更宽) -->
+  <path d="M 80 225 Q 110 215 140 225 T 200 225 T 260 225 T 320 225"
+        stroke="#FFFFFF" stroke-width="5" fill="none" stroke-linecap="round"/>
+
+  <!-- 水波 2 (副波纹，错位 + 半透明，增加层次) -->
+  <path d="M 100 250 Q 125 240 150 250 T 200 250 T 250 250 T 300 250"
+        stroke="#FFFFFF" stroke-width="3.5" fill="none" stroke-linecap="round" opacity="0.75"/>
+
+  <!-- 主标题 "Wharf" -->
+  <text x="380" y="215"
+        font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif"
+        font-size="170" font-weight="800" fill="#1F2937" letter-spacing="-4">Wharf</text>
+
+  <!-- 副标题 -->
+  <text x="384" y="270"
+        font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif"
+        font-size="32" font-weight="400" fill="#4B5563">Transparent Docker Hub Proxy &amp; Accelerator</text>
+</svg>

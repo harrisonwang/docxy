@@ -570,25 +570,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0688c2a7f92e427f44895cd63841bff7b29f8d7a1648b9e7e07a4a365b2e1257"
 
 [[package]]
-name = "docxy"
-version = "0.5.21"
-dependencies = [
- "actix-web",
- "chrono",
- "config",
- "env_logger",
- "futures",
- "lazy_static",
- "log",
- "reqwest",
- "rustls 0.20.9",
- "rustls-pemfile 1.0.4",
- "serde",
- "thiserror 1.0.69",
- "tokio",
-]
-
-[[package]]
 name = "encoding_rs"
 version = "0.8.35"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2520,6 +2501,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b6c71e40d7d2c34a5106301fb632274ca37242cd0c9d3e64dbece371a40a2d87"
 dependencies = [
  "webpki",
+]
+
+[[package]]
+name = "wharf"
+version = "0.6.1"
+dependencies = [
+ "actix-web",
+ "chrono",
+ "config",
+ "env_logger",
+ "futures",
+ "lazy_static",
+ "log",
+ "reqwest",
+ "rustls 0.20.9",
+ "rustls-pemfile 1.0.4",
+ "serde",
+ "thiserror 1.0.69",
+ "tokio",
 ]
 
 [[package]]

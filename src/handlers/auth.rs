@@ -143,10 +143,10 @@ pub async fn get_token(req: HttpRequest) -> Result<HttpResponse, AppError> {
 
     let mut request_builder = HTTP_CLIENT.get(auth_url.clone());
 
-    if let Some(auth_header) = req.headers().get("Authorization") {
-        if let Ok(auth_str) = auth_header.to_str() {
-            request_builder = request_builder.header("Authorization", auth_str);
-        }
+    if let Some(auth_header) = req.headers().get("Authorization")
+        && let Ok(auth_str) = auth_header.to_str()
+    {
+        request_builder = request_builder.header("Authorization", auth_str);
     }
 
     let response = match request_builder.send().await {
@@ -204,10 +204,10 @@ pub async fn proxy_challenge(req: HttpRequest) -> Result<HttpResponse, AppError>
 
     let mut request_builder = HTTP_CLIENT.get(&request_url);
 
-    if let Some(auth) = req.headers().get("Authorization") {
-        if let Ok(auth_str) = auth.to_str() {
-            request_builder = request_builder.header("Authorization", auth_str);
-        }
+    if let Some(auth) = req.headers().get("Authorization")
+        && let Ok(auth_str) = auth.to_str()
+    {
+        request_builder = request_builder.header("Authorization", auth_str);
     }
 
     let response = match request_builder.send().await {

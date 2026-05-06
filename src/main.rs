@@ -82,6 +82,20 @@ lazy_static! {
         .unwrap();
 }
 
+fn configure_proxy_routes(cfg: &mut web::ServiceConfig) {
+    cfg.route("/v2/", web::get().to(handlers::proxy_challenge))
+        .route("/auth/{registry}/token", web::get().to(handlers::get_token))
+        .route("/auth/token", web::get().to(handlers::get_token))
+        .route("/health", web::get().to(handlers::health_check))
+        .route(
+            "/v2/{image_name:.*}/{path_type}/{reference:.+}",
+            web::route()
+                .guard(guard::Any(guard::Get()).or(guard::Head()))
+                .to(handlers::handle_request),
+        )
+        .route("/generate_204", web::get().to(handlers::generate_204));
+}
+
 fn request_host(req: &HttpRequest) -> Option<String> {
     req.headers()
         .get(header::HOST)
@@ -361,17 +375,7 @@ async fn main() -> Result<(), AppError> {
     let http_app = move || {
         App::new()
             .app_data(http_app_data.clone())
-            .route("/v2/", web::get().to(handlers::proxy_challenge))
-            .route("/auth/{registry}/token", web::get().to(handlers::get_token))
-            .route("/auth/token", web::get().to(handlers::get_token))
-            .route("/health", web::get().to(handlers::health_check))
-            .route(
-                "/v2/{image_name:.*}/{path_type}/{reference:.+}",
-                web::route()
-                    .guard(guard::Any(guard::Get()).or(guard::Head()))
-                    .to(handlers::handle_request),
-            )
-            .route("/generate_204", web::get().to(handlers::generate_204))
+            .configure(configure_proxy_routes)
             .default_service(web::route().to(handlers::handle_invalid_request)) // 添加默认服务处理非法请求
     };
 
@@ -427,17 +431,7 @@ async fn main() -> Result<(), AppError> {
                 let https_server = HttpServer::new(move || {
                     App::new()
                         .app_data(https_app_data.clone())
-                        .route("/v2/", web::get().to(handlers::proxy_challenge))
-                        .route("/auth/{registry}/token", web::get().to(handlers::get_token))
-                        .route("/auth/token", web::get().to(handlers::get_token))
-                        .route("/health", web::get().to(handlers::health_check))
-                        .route(
-                            "/v2/{image_name:.*}/{path_type}/{reference:.+}",
-                            web::route()
-                                .guard(guard::Any(guard::Get()).or(guard::Head()))
-                                .to(handlers::handle_request),
-                        )
-                        .route("/generate_204", web::get().to(handlers::generate_204))
+                        .configure(configure_proxy_routes)
                         .default_service(web::route().to(handlers::handle_invalid_request)) // 添加默认服务处理非法请求
                 })
                 .bind_rustls(("0.0.0.0", settings.server.https_port), rustls_config)?
@@ -557,12 +551,12 @@ fn load_rustls_config(settings: &config::Settings) -> Result<ServerConfig, AppEr
 
     // 读取证书和密钥文件
     let cert_file = &mut BufReader::new(
-        File::open(&cert_path)
+        File::open(cert_path)
             .map_err(|e| AppError::TlsConfig(format!("无法打开证书文件 {cert_path}: {e}")))?,
     );
 
     let key_file = &mut BufReader::new(
-        File::open(&key_path)
+        File::open(key_path)
             .map_err(|e| AppError::TlsConfig(format!("无法打开私钥文件 {key_path}: {e}")))?,
     );
 
@@ -578,13 +572,13 @@ fn load_rustls_config(settings: &config::Settings) -> Result<ServerConfig, AppEr
     // 如果没有找到 ECC 私钥，尝试读取 RSA 私钥
     if keys.is_empty() {
         // 需要重新打开文件，因为前面的读取已经消耗了文件内容
-        let key_file = &mut BufReader::new(File::open(&key_path)?);
+        let key_file = &mut BufReader::new(File::open(key_path)?);
         keys = rustls_pemfile::rsa_private_keys(key_file)?;
     }
 
     // 如果仍然没有找到私钥，尝试读取 PKCS8 格式的私钥
     if keys.is_empty() {
-        let key_file = &mut BufReader::new(File::open(&key_path)?);
+        let key_file = &mut BufReader::new(File::open(key_path)?);
         keys = rustls_pemfile::pkcs8_private_keys(key_file)?;
     }
 

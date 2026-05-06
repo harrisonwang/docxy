@@ -1,6 +1,6 @@
-# Docxy
+# Wharf
 
-![og-image](og-image.png)
+![og-image](og-image.svg)
 
 [![English](https://img.shields.io/badge/English-Click-orange)](README_EN.md)
 [![简体中文](https://img.shields.io/badge/简体中文-点击查看-blue)](README.md)
@@ -12,7 +12,7 @@
 
 خدمة وكيل صور Docker خفيفة الوزن، مصممة لحل مشكلة الوصول المقيد إلى Docker Hub في البر الرئيسي للصين.
 
-> 📢 **برنامج تعليمي للمدونة:** [**قل وداعًا لمهلة اتصال Docker Hub! أنشئ مسرع الصور الحصري الخاص بك باستخدام Docxy**](https://voxsay.com/posts/docxy-docker-proxy-tutorial-for-china/)
+> 📢 **برنامج تعليمي للمدونة:** [**قل وداعًا لمهلة اتصال Docker Hub! أنشئ مسرع الصور الحصري الخاص بك باستخدام Wharf**](https://voxsay.com/posts/docxy-docker-proxy-tutorial-for-china/)
 
 ## الميزات الأساسية
 
@@ -34,7 +34,7 @@
 نحن نقدم برنامجًا نصيًا للتثبيت بنقرة واحدة لتبسيط عملية النشر. قبل البدء، يرجى التأكد من حل اسم المجال الخاص بك إلى المضيف الهدف.
 
 ```bash
-bash <(curl -Ls https://raw.githubusercontent.com/harrisonwang/docxy/main/install.sh)
+bash <(curl -Ls https://raw.githubusercontent.com/harrisonwang/wharf/main/install.sh)
 ```
 
 سيرشدك البرنامج النصي خلال التثبيت ويقدم أوضاع النشر الثلاثة التالية:
@@ -43,7 +43,7 @@ bash <(curl -Ls https://raw.githubusercontent.com/harrisonwang/docxy/main/instal
 
 ### الوضع الأول: مستقل (HTTPS)
 
-هذا هو الوضع الأبسط والأكثر توصية. سيستمع Docxy مباشرة على المنافذ 80 و 443، ويوفر خدمة وكيل HTTPS كاملة.
+هذا هو الوضع الأبسط والأكثر توصية. سيستمع Wharf مباشرة على المنافذ 80 و 443، ويوفر خدمة وكيل HTTPS كاملة.
 
 **الميزات:**
 - لا حاجة لتكوين خادم ويب إضافي.
@@ -66,14 +66,14 @@ bash <(curl -Ls https://raw.githubusercontent.com/harrisonwang/docxy/main/instal
 هذا الوضع مناسب إذا كان لديك بالفعل Nginx وترغب في إدارة خدمات الويب مركزيًا من خلاله.
 
 **الميزات:**
-- يتعامل Nginx مع تشفير HTTPS وإدارة الشهادات، مع تشغيل Docxy كخلفية HTTP بسيطة.
-- يعمل Docxy كخدمة HTTP خلفية على منفذ محدد (على سبيل المثال، 9000).
+- يتعامل Nginx مع تشفير HTTPS وإدارة الشهادات، مع تشغيل Wharf كخلفية HTTP بسيطة.
+- يعمل Wharf كخدمة HTTP خلفية على منفذ محدد (على سبيل المثال، 9000).
 - مناسب للتكامل مع الخدمات الأخرى.
 
 **عملية التثبيت:**
 1.  قم بتشغيل برنامج التثبيت بنقرة واحدة.
 2.  عند المطالبة باختيار الوضع، أدخل `2`.
-3.  اتبع المطالبات لإدخال اسم المجال الخاص بك، ومنفذ الاستماع الخلفي لـ Docxy، ومعلومات الشهادة.
+3.  اتبع المطالبات لإدخال اسم المجال الخاص بك، ومنفذ الاستماع الخلفي لـ Wharf، ومعلومات الشهادة.
 4.  سيقوم البرنامج النصي تلقائيًا بإنشاء ملف تكوين Nginx نموذجي لك. ستحتاج إلى إضافته يدويًا إلى تكوين Nginx الخاص بك وإعادة تحميل خدمة Nginx.
 
 </details>
@@ -85,18 +85,18 @@ bash <(curl -Ls https://raw.githubusercontent.com/harrisonwang/docxy/main/instal
 
 ### الوضع الثالث: أصل CDN (HTTP)
 
-هذا الوضع مناسب إذا كنت ترغب في استخدام Docxy كأصل لـ CDN لتحقيق تسريع عالمي أفضل.
+هذا الوضع مناسب إذا كنت ترغب في استخدام Wharf كأصل لـ CDN لتحقيق تسريع عالمي أفضل.
 
 **الميزات:**
-- يستمع Docxy فقط على منافذ HTTP.
+- يستمع Wharf فقط على منافذ HTTP.
 - يتعامل مزود CDN مع طلبات HTTPS والشهادات.
-- يثق Docxy ويعالج رؤوس `X-Forwarded-*` لتحديد عنوان IP العميل والبروتوكول بشكل صحيح.
+- يثق Wharf ويعالج رؤوس `X-Forwarded-*` لتحديد عنوان IP العميل والبروتوكول بشكل صحيح.
 
 **عملية التثبيت:**
 1.  قم بتشغيل برنامج التثبيت بنقرة واحدة.
 2.  عند المطالبة باختيار الوضع، أدخل `3`.
-3.  اتبع المطالبات لإدخال منفذ HTTP الذي يجب أن يستمع إليه Docxy.
-4.  قم بتكوين خدمة CDN الخاصة بك لتوجيه أصلها إلى عنوان ومنفذ خدمة Docxy.
+3.  اتبع المطالبات لإدخال منفذ HTTP الذي يجب أن يستمع إليه Wharf.
+4.  قم بتكوين خدمة CDN الخاصة بك لتوجيه أصلها إلى عنوان ومنفذ خدمة Wharf.
 
 </details>
 
@@ -182,8 +182,8 @@ bash <(curl -Ls https://raw.githubusercontent.com/harrisonwang/docxy/main/instal
 
 1.  **استنساخ المستودع**
     ```bash
-    git clone https://github.com/harrisonwang/docxy.git
-    cd docxy
+    git clone https://github.com/harrisonwang/wharf.git
+    cd wharf
     ```
 
 2.  **تعديل ملف التكوين**
