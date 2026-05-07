@@ -21,11 +21,4 @@ Cargo.lock
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 
-# Claude Code
-CLAUDE.md
-
-# GEMINI CLI
-GEMINI.md
-
-# specstory
-.specstory/
+.DS_Store
